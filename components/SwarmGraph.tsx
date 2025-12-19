@@ -13,15 +13,18 @@ const SwarmGraph: React.FC<SwarmGraphProps> = ({ activeRole, isProcessing, agent
 
   const nodes = useMemo(() => [
     { id: 'RESEARCHER' as AgentRole, label: 'Researcher', x: 20, y: 30, icon: '🔍' },
-    { id: 'STRATEGIST' as AgentRole, label: 'Strategist', x: 50, y: 50, icon: '♟️' },
-    { id: 'COPYWRITER' as AgentRole, label: 'Copywriter', x: 80, y: 30, icon: '✍️' },
-    { id: 'DESIGNER' as AgentRole, label: 'Designer', x: 80, y: 70, icon: '🎨' },
+    { id: 'STRATEGIST' as AgentRole, label: 'Strategist', x: 45, y: 50, icon: '♟️' },
+    { id: 'COPYWRITER' as AgentRole, label: 'Copywriter', x: 70, y: 30, icon: '✍️' },
+    { id: 'DESIGNER' as AgentRole, label: 'Designer', x: 70, y: 70, icon: '🎨' },
+    { id: 'QUALITY_MANAGER' as AgentRole, label: 'Quality Manager', x: 90, y: 50, icon: '🛡️' },
   ], []);
 
   const edges = useMemo(() => [
     { from: 'RESEARCHER' as AgentRole, to: 'STRATEGIST' as AgentRole },
     { from: 'STRATEGIST' as AgentRole, to: 'COPYWRITER' as AgentRole },
     { from: 'STRATEGIST' as AgentRole, to: 'DESIGNER' as AgentRole },
+    { from: 'COPYWRITER' as AgentRole, to: 'QUALITY_MANAGER' as AgentRole },
+    { from: 'DESIGNER' as AgentRole, to: 'QUALITY_MANAGER' as AgentRole },
   ], []);
 
   const neighbors = useMemo(() => {
@@ -66,7 +69,6 @@ const SwarmGraph: React.FC<SwarmGraphProps> = ({ activeRole, isProcessing, agent
 
   return (
     <div className="w-full aspect-[16/9] glass-card rounded-[3rem] p-8 relative overflow-hidden group border-white/5 shadow-2xl">
-      {/* Background Grid Pattern */}
       <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '30px 30px' }}></div>
 
       <div className="absolute top-6 left-8 z-10 flex items-center gap-3">
@@ -150,7 +152,6 @@ const SwarmGraph: React.FC<SwarmGraphProps> = ({ activeRole, isProcessing, agent
           </filter>
         </defs>
 
-        {/* Edges */}
         {edges.map((edge, i) => {
           const fromNode = nodes.find(n => n.id === edge.from)!;
           const toNode = nodes.find(n => n.id === edge.to)!;
@@ -158,8 +159,8 @@ const SwarmGraph: React.FC<SwarmGraphProps> = ({ activeRole, isProcessing, agent
           const isActiveEdge = fromAgent?.status === 'ACTIVE' || (activeRole === edge.from && isProcessing);
           const isSelectedEdge = selectedAgentId === edge.from || selectedAgentId === edge.to;
           
-          const isRelevant = selectedAgentId ? isSelectedEdge : true;
-          const opacity = selectedAgentId ? (isRelevant ? 1 : 0.05) : 0.6;
+          const isRelevant = selectedAgentId ? neighbors.has(edge.from) && neighbors.has(edge.to) : true;
+          const opacity = selectedAgentId ? (isSelectedEdge ? 1 : 0.05) : 0.6;
 
           return (
             <g key={`edge-${i}`} style={{ opacity }} className="transition-opacity duration-500">
@@ -185,7 +186,6 @@ const SwarmGraph: React.FC<SwarmGraphProps> = ({ activeRole, isProcessing, agent
           );
         })}
 
-        {/* Nodes */}
         {nodes.map((node) => {
           const statusData = getAgentStatusData(node.id);
           const isActive = activeRole === node.id;
@@ -203,7 +203,6 @@ const SwarmGraph: React.FC<SwarmGraphProps> = ({ activeRole, isProcessing, agent
               }}
               style={{ opacity }}
             >
-              {/* Highlight Pulse for Connected Nodes */}
               {selectedAgentId && isNeighbor && !isSelected && (
                 <circle
                   cx={node.x} cy={node.y} r="8"
@@ -214,20 +213,17 @@ const SwarmGraph: React.FC<SwarmGraphProps> = ({ activeRole, isProcessing, agent
                 </circle>
               )}
 
-              {/* Outer Glow for Active/Selected */}
               <circle
                 cx={node.x} cy={node.y} r="8"
                 className={`fill-none transition-all duration-500 ${isSelected ? 'stroke-purple-500/30 stroke-1' : 'stroke-transparent'}`}
               />
 
-              {/* Main Node Circle */}
               <circle
                 cx={node.x} cy={node.y} r="6"
                 className={`transition-all duration-500 stroke-[1] ${statusData.color} group-hover/node:stroke-white group-hover/node:stroke-[1.5]`}
                 style={{ filter: isActive || isSelected ? 'url(#glow)' : 'none' }}
               />
 
-              {/* Indicator Core */}
               <circle
                 cx={node.x} cy={node.y} r="1.2"
                 className={`transition-all duration-500 ${isActive || isSelected ? 'fill-white' : 'fill-slate-700'}`}

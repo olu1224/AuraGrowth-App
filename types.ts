@@ -1,5 +1,5 @@
 
-export type AgentRole = 'RESEARCHER' | 'STRATEGIST' | 'COPYWRITER' | 'DESIGNER';
+export type AgentRole = 'RESEARCHER' | 'STRATEGIST' | 'COPYWRITER' | 'DESIGNER' | 'QUALITY_MANAGER';
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH';
 
 export interface Task {

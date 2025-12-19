@@ -64,6 +64,19 @@ const DEFAULT_AGENTS: Agent[] = [
       { id: 't4-1', description: 'Generate high-res hero asset', priority: 'HIGH', status: 'PENDING' },
       { id: 't4-2', description: 'Synthesize AI brand reel', priority: 'HIGH', status: 'PENDING' }
     ]
+  },
+  {
+    id: 'agent-5',
+    role: 'QUALITY_MANAGER',
+    name: 'Guardian-QC',
+    specialty: 'Final Assurance & Validation',
+    instruction: 'Audit all swarm outputs for brand consistency, conversion logic, and narrative excellence.',
+    status: 'IDLE',
+    statusMessage: 'Ready for audit',
+    tasks: [
+      { id: 't5-1', description: 'Audit campaign narrative', priority: 'HIGH', status: 'PENDING' },
+      { id: 't5-2', description: 'Validate visual compliance', priority: 'HIGH', status: 'PENDING' }
+    ]
   }
 ];
 
@@ -152,6 +165,7 @@ const App: React.FC = () => {
 
     try {
       setCredits(prev => prev - 1);
+      
       setActiveRole('RESEARCHER');
       updateAgentState('RESEARCHER', 'ACTIVE', 'Scanning market niches...');
       await new Promise(r => setTimeout(r, isTurboMode ? 200 : 800));
@@ -167,6 +181,11 @@ const App: React.FC = () => {
       setActiveRole('DESIGNER');
       updateAgentState('DESIGNER', 'ACTIVE', 'Rendering visuals...');
       const imageUrl = await geminiService.generateCampaignImage(results.visualPrompt, campaignAsset || undefined);
+      await new Promise(r => setTimeout(r, isTurboMode ? 200 : 800));
+
+      setActiveRole('QUALITY_MANAGER');
+      updateAgentState('QUALITY_MANAGER', 'ACTIVE', 'Auditing final output for quality control...');
+      await new Promise(r => setTimeout(r, isTurboMode ? 300 : 1200));
       
       const finalOutcome: CampaignOutcome = {
         id: Date.now().toString(),
@@ -183,12 +202,12 @@ const App: React.FC = () => {
       setHistory(prev => [finalOutcome, ...prev]);
       setActiveRole(null);
       setAgents(prev => prev.map(a => ({ ...a, status: 'IDLE', statusMessage: 'Standing by' })));
-      setTotalTasksCompleted(c => c + 4);
+      setTotalTasksCompleted(c => c + 5);
       
       setActivities(prev => [...prev, {
         id: 'complete-' + Date.now(),
-        role: 'STRATEGIST',
-        message: `Outcome synthesized successfully ${isTurboMode ? '(Fast AI Enabled)' : ''}.`,
+        role: 'QUALITY_MANAGER',
+        message: `Outcome verified and released for deployment ${isTurboMode ? '(Turbo Validation Enabled)' : ''}.`,
         timestamp: Date.now(),
         isLog: false
       }]);
@@ -276,7 +295,6 @@ const App: React.FC = () => {
                     <input value={audience} onChange={(e) => setAudience(e.target.value)} type="text" placeholder="e.g. Ultra-high-net-worth travellers" className="w-full bg-black/60 border border-white/10 rounded-2xl px-5 py-4 text-sm text-white outline-none focus:ring-1 focus:ring-purple-500 transition-all placeholder:text-slate-700 font-medium" />
                   </label>
 
-                  {/* New Asset Upload Section */}
                   <div className="space-y-3">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">3. Brand Assets (Optional)</span>
                     <div 
@@ -310,7 +328,7 @@ const App: React.FC = () => {
                  <div className="grid grid-cols-2 gap-3">
                     {agents.map(agent => (
                       <div key={agent.id} className={`p-4 rounded-2xl border border-white/10 flex items-start gap-3 bg-[#0F172A]/30 hover:border-white/20 transition-all cursor-pointer ${activeRole === agent.role ? 'ring-1 ring-purple-500' : ''}`}>
-                         <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-lg">{agent.role === 'RESEARCHER' ? '🔍' : agent.role === 'STRATEGIST' ? '♟️' : agent.role === 'COPYWRITER' ? '✍️' : '🎨'}</div>
+                         <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-lg">{agent.role === 'RESEARCHER' ? '🔍' : agent.role === 'STRATEGIST' ? '♟️' : agent.role === 'COPYWRITER' ? '✍️' : agent.role === 'DESIGNER' ? '🎨' : '🛡️'}</div>
                          <div className="min-w-0"><h4 className="text-[11px] font-bold text-white truncate">{agent.name}</h4><p className="text-[9px] text-slate-500 uppercase font-black">{agent.role}</p></div>
                       </div>
                     ))}

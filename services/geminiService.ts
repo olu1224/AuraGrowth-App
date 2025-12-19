@@ -1,10 +1,27 @@
 
-import { GoogleGenAI, Type, VideoGenerationReferenceType } from "@google/genai";
+import { GoogleGenAI, Type, VideoGenerationReferenceType, GenerateContentResponse } from "@google/genai";
 import { CampaignResults, Agent, ClientProposal } from "../types";
 
 export class GeminiService {
   private getAI() {
     return new GoogleGenAI({ apiKey: process.env.API_KEY });
+  }
+
+  /**
+   * Helper to wrap API calls with a simple exponential backoff for 429s
+   */
+  private async withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const isQuotaError = error.message?.includes("429") || error.status === 429 || error.message?.toLowerCase().includes("quota");
+      if (isQuotaError && retries > 0) {
+        console.warn(`Quota hit, retrying in ${delay}ms... (${retries} attempts left)`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.withRetry(fn, retries - 1, delay * 2);
+      }
+      throw error;
+    }
   }
 
   async generateMarketingOutcome(
@@ -18,6 +35,7 @@ export class GeminiService {
     const strategist = agents.find(a => a.role === 'STRATEGIST');
     const copywriter = agents.find(a => a.role === 'COPYWRITER');
     const designer = agents.find(a => a.role === 'DESIGNER');
+    const quality = agents.find(a => a.role === 'QUALITY_MANAGER');
 
     const model = isFast ? 'gemini-flash-lite-latest' : 'gemini-3-pro-preview';
 
@@ -31,13 +49,15 @@ export class GeminiService {
       - Strategist (${strategist?.name}): Focus on conversion funnels.
       - Copywriter (${copywriter?.name}): Focus on multi-channel messaging.
       - Designer (${designer?.name}): Focus on cinematic image and video vision.
+      - Quality Manager (${quality?.name}): Ensure final results meet rigorous standards for brand excellence and conversion logic.
     `;
 
-    const response = await ai.models.generateContent({
+    // Fix: Explicitly cast to GenerateContentResponse to access the 'text' property
+    const response = await this.withRetry(() => ai.models.generateContent({
       model: model,
       contents: prompt,
       config: {
-        systemInstruction: "You are the AuraGrowth Swarm Controller. Create a comprehensive marketing outcome. Include separate copy for Social and Email. Include a video prompt and a distribution plan. IMPORTANT: Video prompts MUST be strictly VISUAL, DESCRIBING MOTION, LIGHTING, AND TEXTURES. EXPLICITLY specify 'NO TEXT, NO LETTERS, NO WRITING, NO CAPTIONS' to avoid AI spelling artifacts. Return strictly JSON.",
+        systemInstruction: "You are the AuraGrowth Swarm Controller under the strict oversight of the Quality Manager. Create a comprehensive marketing outcome. Include separate copy for Social and Email. Include a video prompt and a distribution plan. IMPORTANT: Video prompts MUST be strictly VISUAL, DESCRIBING MOTION, LIGHTING, AND TEXTURES. EXPLICITLY specify 'NO TEXT, NO LETTERS, NO WRITING, NO CAPTIONS' to avoid AI spelling artifacts. Return strictly JSON.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -71,7 +91,7 @@ export class GeminiService {
           required: ["strategy", "copy", "visualPrompt", "videoPrompt", "distribution"]
         }
       }
-    });
+    })) as GenerateContentResponse;
 
     return JSON.parse(response.text || '{}') as CampaignResults;
   }
@@ -80,7 +100,6 @@ export class GeminiService {
     const ai = this.getAI();
     const contents: any[] = [];
     
-    // Commands for the model to use the reference
     const instruction = referenceAsset 
       ? `High-fidelity commercial marketing hero image. Incorporate the provided reference asset/logo into the scene: ${visualPrompt}. 16:9 aspect ratio, cinematic realism. ABSOLUTELY NO TEXT, NO OTHER LOGOS, NO WRITING.`
       : `High-fidelity commercial marketing hero image: ${visualPrompt}. 16:9 aspect ratio, cinematic realism. ABSOLUTELY NO TEXT, NO LOGOS, NO WRITING.`;
@@ -97,26 +116,29 @@ export class GeminiService {
     
     contents.push({ text: instruction });
 
-    const response = await ai.models.generateContent({
+    // Fix: Explicitly cast response to GenerateContentResponse to access 'candidates'
+    const response = await this.withRetry(() => ai.models.generateContent({
       model: 'gemini-3-pro-image-preview',
       contents: { parts: contents },
       config: {
         imageConfig: { aspectRatio: "16:9", imageSize: "1K" }
       }
-    });
+    })) as GenerateContentResponse;
 
-    for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
+    if (response.candidates?.[0]?.content?.parts) {
+      for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) {
+          return `data:image/png;base64,${part.inlineData.data}`;
+        }
       }
     }
     return undefined;
   }
 
-  async generateCampaignVideo(videoPrompt: string, aspectRatio: '16:9' | '9:16' = '16:9', referenceAsset?: string): Promise<{ url: string, rawVideo: any } | undefined> {
-    const ai = this.getAI();
+  async generateCampaignVideo(videoPrompt: string, aspectRatio: '16:9' | '9:16' = '16:9', referenceAsset?: string, willExtend: boolean = false): Promise<{ url: string, rawVideo: any } | undefined> {
     try {
-      // NOTE: For reference images, model must be 'veo-3.1-generate-preview' and aspectRatio '16:9'.
+      const model = (referenceAsset || willExtend) ? 'veo-3.1-generate-preview' : 'veo-3.1-fast-generate-preview';
+      
       const finalAspectRatio = referenceAsset ? '16:9' : aspectRatio;
       const config: any = {
         numberOfVideos: 1,
@@ -124,36 +146,50 @@ export class GeminiService {
         aspectRatio: finalAspectRatio
       };
 
-      const promptText = `Hyper-visual cinematic sequence, focusing on motion, light, and texture. ${videoPrompt}. ${referenceAsset ? "Incorporate the provided reference image/logo as a natural physical element within this environment." : ""} ABSOLUTELY NO ON-SCREEN TEXT, NO LETTERS, NO LOGOS, NO WRITING, NO CAPTIONS.`;
+      const promptText = `Hyper-visual cinematic sequence. ${videoPrompt}. ${referenceAsset ? "Integrate the brand asset provided as a physical element in the scene." : ""} NO TEXT, NO CAPTIONS.`;
 
-      let operation;
-      if (referenceAsset) {
-        const base64Data = referenceAsset.split(',')[1] || referenceAsset;
-        operation = await ai.models.generateVideos({
-          model: 'veo-3.1-generate-preview',
-          prompt: promptText,
-          config: {
-            ...config,
-            referenceImages: [{
-              image: {
-                imageBytes: base64Data,
-                mimeType: 'image/png',
-              },
-              referenceType: VideoGenerationReferenceType.ASSET,
-            }]
-          }
-        });
-      } else {
-        operation = await ai.models.generateVideos({
-          model: 'veo-3.1-fast-generate-preview',
-          prompt: promptText,
-          config: config
-        });
-      }
+      // Fix: Cast operation to any to access 'done' and 'response' properties which might be typed as unknown by the generic helper
+      let operation = await this.withRetry(() => {
+        // GUIDELINE: Create a new GoogleGenAI instance right before making an API call for Veo models
+        const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        if (referenceAsset) {
+          const base64Data = referenceAsset.split(',')[1] || referenceAsset;
+          return localAi.models.generateVideos({
+            model: model,
+            prompt: promptText,
+            config: {
+              ...config,
+              referenceImages: [{
+                image: {
+                  imageBytes: base64Data,
+                  mimeType: 'image/png',
+                },
+                referenceType: VideoGenerationReferenceType.ASSET,
+              }]
+            }
+          });
+        } else {
+          return localAi.models.generateVideos({
+            model: model,
+            prompt: promptText,
+            config: config
+          });
+        }
+      }) as any;
 
       while (!operation.done) {
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        operation = await ai.operations.getVideosOperation({ operation: operation });
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        try {
+          operation = await this.withRetry(() => {
+             const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+             return localAi.operations.getVideosOperation({ operation: operation });
+          }) as any;
+        } catch (pollErr: any) {
+          if (pollErr.message?.includes("Requested entity was not found")) {
+            await window.aistudio?.openSelectKey?.();
+          }
+          throw pollErr;
+        }
       }
 
       const video = operation.response?.generatedVideos?.[0]?.video;
@@ -163,29 +199,47 @@ export class GeminiService {
           rawVideo: video
         };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Video Generation Error:", error);
+      if (error.message?.includes("Requested entity was not found")) {
+        await window.aistudio?.openSelectKey?.();
+      }
+      throw error;
     }
     return undefined;
   }
 
   async extendCampaignVideo(videoPrompt: string, previousVideo: any, aspectRatio: '16:9' | '9:16' = '16:9'): Promise<{ url: string, rawVideo: any } | undefined> {
-    const ai = this.getAI();
     try {
-      let operation = await ai.models.generateVideos({
-        model: 'veo-3.1-generate-preview',
-        prompt: `Continue the cinematic narrative seamlessly: ${videoPrompt}. ABSOLUTELY NO ON-SCREEN TEXT, LETTERS, OR LOGOS. Focus on continuous motion and environmental details.`,
-        video: previousVideo,
-        config: {
-          numberOfVideos: 1,
-          resolution: '720p',
-          aspectRatio: aspectRatio
-        }
-      });
+      // Fix: Cast operation to any to access 'done' and 'response' properties
+      let operation = await this.withRetry(() => {
+        // GUIDELINE: Create a new GoogleGenAI instance right before making an API call for Veo models
+        const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        return localAi.models.generateVideos({
+          model: 'veo-3.1-generate-preview',
+          prompt: `Seamlessly continue the movement and visual narrative from the previous shot. The camera and action should transition perfectly: ${videoPrompt}. NO TEXT, NO CAPTIONS.`,
+          video: previousVideo,
+          config: {
+            numberOfVideos: 1,
+            resolution: '720p',
+            aspectRatio: aspectRatio
+          }
+        });
+      }) as any;
 
       while (!operation.done) {
         await new Promise(resolve => setTimeout(resolve, 10000));
-        operation = await ai.operations.getVideosOperation({ operation: operation });
+        try {
+          operation = await this.withRetry(() => {
+            const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            return localAi.operations.getVideosOperation({ operation: operation });
+          }) as any;
+        } catch (pollErr: any) {
+          if (pollErr.message?.includes("Requested entity was not found")) {
+            await window.aistudio?.openSelectKey?.();
+          }
+          throw pollErr;
+        }
       }
 
       const video = operation.response?.generatedVideos?.[0]?.video;
@@ -195,15 +249,20 @@ export class GeminiService {
           rawVideo: video
         };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Video Extension Error:", error);
+      if (error.message?.includes("Requested entity was not found")) {
+        await window.aistudio?.openSelectKey?.();
+      }
+      throw error;
     }
     return undefined;
   }
 
   async generateClientProposal(marketName: string): Promise<ClientProposal> {
     const ai = this.getAI();
-    const response = await ai.models.generateContent({
+    // Fix: Explicitly cast response to GenerateContentResponse to access 'text' property
+    const response = await this.withRetry(() => ai.models.generateContent({
       model: "gemini-flash-lite-latest",
       contents: `Generate a proposal for ${marketName}.`,
       config: {
@@ -226,7 +285,7 @@ export class GeminiService {
           }
         }
       }
-    });
+    })) as GenerateContentResponse;
     return JSON.parse(response.text || '{}') as ClientProposal;
   }
 }

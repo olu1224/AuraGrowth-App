@@ -12,18 +12,16 @@ interface OutcomeViewProps {
 const OutcomeView: React.FC<OutcomeViewProps> = ({ results, onMonitorPerformance, isActivated }) => {
   const [activeSubTab, setActiveSubTab] = useState<'Assets' | 'Briefing' | 'Roadmap' | 'Guide'>('Assets');
   
-  // Local state for assets to allow post-generation updates
   const [localCampaignAsset, setLocalCampaignAsset] = useState<string | undefined>(results.campaignAsset);
   const [videoUrl, setVideoUrl] = useState<string | undefined>(results.videoUrl);
   const [visualUrl, setVisualUrl] = useState<string | undefined>(results.visualUrl);
   
-  // Processing states
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [videoGenerationStatus, setVideoGenerationStatus] = useState<string>('');
+  const [videoError, setVideoError] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   
-  // Video settings
   const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('16:9');
   const [targetDuration, setTargetDuration] = useState<number>(8); // Default 8s
 
@@ -72,53 +70,62 @@ const OutcomeView: React.FC<OutcomeViewProps> = ({ results, onMonitorPerformance
     if (isGeneratingVideo) return;
     
     setIsGeneratingVideo(true);
-    setVideoUrl(undefined); 
+    setVideoError(null);
     setVideoGenerationStatus('Initializing Swarm Brain...');
     
+    // We don't setVideoUrl(undefined) immediately so the user can still see 
+    // the previous video if the new one fails partway.
+    
     try {
-      // For reference assets, API requires 16:9
       const effectiveAspectRatio = localCampaignAsset ? '16:9' : videoAspectRatio;
-      
+      const extensions = targetDuration === 15 ? 1 : targetDuration === 30 ? 3 : targetDuration === 60 ? 7 : 0;
+      const willExtend = extensions > 0;
+
       // 1. Initial Segment (0-8s)
-      setVideoGenerationStatus('Synthesizing Master Segment (0-8s)...');
-      // Use the local campaign asset (newly uploaded or from results)
-      const initialResult = await geminiService.generateCampaignVideo(results.videoPrompt, effectiveAspectRatio, localCampaignAsset);
+      setVideoGenerationStatus('Guardian-QC: Synthesizing Initial Segment (0-8s)...');
+      const initialResult = await geminiService.generateCampaignVideo(results.videoPrompt, effectiveAspectRatio, localCampaignAsset, willExtend);
       
-      if (!initialResult) throw new Error("Initial synthesis failed.");
+      if (!initialResult) throw new Error("Base narrative synthesis failed.");
 
       let currentRawVideo = initialResult.rawVideo;
-      let currentUrl = initialResult.url;
+      let currentSignedUrl = initialResult.url;
       
-      // Calculate extensions. Each extension adds exactly 7 seconds.
-      const extensions = targetDuration === 15 ? 1 : targetDuration === 30 ? 3 : targetDuration === 60 ? 7 : 0;
+      // Update preview immediately with the first segment
+      setVideoUrl(currentSignedUrl);
 
+      // 2. Chained Extensions Loop
       for (let i = 0; i < extensions; i++) {
-        setVideoGenerationStatus(`Neural Extension: Step ${i + 1}/${extensions} (~${8 + (i+1)*7}s)...`);
-        const extendedResult = await geminiService.extendCampaignVideo(results.videoPrompt, currentRawVideo, effectiveAspectRatio);
+        const estProgress = 8 + (i + 1) * 7;
+        setVideoGenerationStatus(`Guardian-QC: Extending Neural Sequence ${i + 1}/${extensions} (~${estProgress}s)...`);
         
-        if (!extendedResult) {
-          console.warn("An extension step failed, using last stable URL.");
-          break;
+        try {
+          const extendedResult = await geminiService.extendCampaignVideo(results.videoPrompt, currentRawVideo, effectiveAspectRatio);
+          
+          if (!extendedResult) {
+            setVideoError(`Extension ${i+1} failed. Showing longest successful segment.`);
+            break; 
+          }
+          
+          currentRawVideo = extendedResult.rawVideo;
+          currentSignedUrl = extendedResult.url;
+          
+          // Update video player as segments complete
+          setVideoUrl(currentSignedUrl);
+        } catch (extErr: any) {
+          console.warn(`Extension loop ${i + 1} failed:`, extErr);
+          setVideoError(`Partial synthesis achieved (${estProgress - 7}s). Quota or network interruption.`);
+          break; // Keep showing the last successful URL
         }
-        
-        currentRawVideo = extendedResult.rawVideo;
-        currentUrl = extendedResult.url;
       }
 
-      setVideoGenerationStatus('Compiling final high-fidelity narrative...');
+      setVideoGenerationStatus('Guardian-QC: Finalizing Sequence...');
+      await new Promise(r => setTimeout(r, 1000)); 
+      setVideoGenerationStatus(`Synthesis Complete: Outcome Released.`);
       
-      const response = await fetch(currentUrl);
-      if (!response.ok) throw new Error("Failed to secure final media stream");
-      
-      const blob = await response.blob();
-      const localUrl = URL.createObjectURL(blob);
-      
-      setVideoUrl(localUrl);
-      setVideoGenerationStatus(`Success: ${targetDuration}s Sequence Compiled.`);
-      
-    } catch (error) {
-      console.error("Video Gen Error:", error);
-      setVideoGenerationStatus('Synthesis failed. Check network or shorten duration.');
+    } catch (error: any) {
+      console.error("Master Video Synthesis Error:", error);
+      setVideoError(error.message || "Synthesis interrupted. Verify API key/quota.");
+      setVideoGenerationStatus('Synthesis failed.');
     } finally {
       setIsGeneratingVideo(false);
     }
@@ -204,7 +211,6 @@ const OutcomeView: React.FC<OutcomeViewProps> = ({ results, onMonitorPerformance
     if (videoUrl) {
       content += `Video Duration: ${targetDuration} seconds\n`;
       content += `Video Aspect Ratio: ${localCampaignAsset ? '16:9' : videoAspectRatio}\n`;
-      content += `Internal Media URL: ${videoUrl}\n`;
     } else {
       content += `Video Status: Pending Synthesis\n`;
     }
@@ -338,17 +344,34 @@ const OutcomeView: React.FC<OutcomeViewProps> = ({ results, onMonitorPerformance
               <div className="glass-card rounded-[2rem] overflow-hidden border-white/5 relative group min-h-[220px] bg-slate-900/60 flex flex-col">
                 {videoUrl ? (
                   <div className="w-full h-full space-y-3 p-4">
-                    <div className={`mx-auto rounded-xl overflow-hidden bg-black border border-white/5 relative ${localCampaignAsset || videoAspectRatio === '9:16' ? 'aspect-video w-full' : 'aspect-video w-full'} ${localCampaignAsset || videoAspectRatio === '9:16' && !localCampaignAsset ? 'h-[320px] w-[180px]' : ''}`}>
-                       <video key={videoUrl} src={videoUrl} controls className="w-full h-full object-cover" playsInline />
-                       <div className="absolute top-2 right-2 px-2 py-0.5 bg-black/60 rounded text-[7px] font-bold text-emerald-400 uppercase">Veo 3 Neural Reference</div>
+                    <div className={`mx-auto rounded-xl overflow-hidden bg-black border border-white/5 relative aspect-video w-full`}>
+                       <video 
+                         key={videoUrl} 
+                         src={videoUrl} 
+                         controls 
+                         autoPlay 
+                         muted 
+                         loop
+                         playsInline
+                         className="w-full h-full object-cover" 
+                       />
+                       <div className="absolute top-2 right-2 px-2 py-0.5 bg-black/60 rounded text-[7px] font-bold text-emerald-400 uppercase">Neural Pipeline Status: Active</div>
                     </div>
                     <div className="flex justify-between items-center">
-                       <span className="text-[8px] font-black text-purple-400 uppercase tracking-widest">Neural Narrative ({targetDuration}s)</span>
+                       <span className="text-[8px] font-black text-purple-400 uppercase tracking-widest">Motion Outcome</span>
                        <div className="flex gap-2">
-                         <button onClick={() => setVideoUrl(undefined)} className="px-3 py-1.5 bg-white/5 text-slate-400 text-[8px] font-black uppercase tracking-widest rounded-lg hover:bg-white/10 transition-all">New Version</button>
+                         <button onClick={() => { setVideoUrl(undefined); setVideoError(null); }} className="px-3 py-1.5 bg-white/5 text-slate-400 text-[8px] font-black uppercase tracking-widest rounded-lg hover:bg-white/10 transition-all">New Version</button>
                          <button onClick={downloadVideo} className="px-3 py-1.5 bg-pink-600 text-white text-[8px] font-black uppercase tracking-widest rounded-lg hover:brightness-110 transition-all">Download MP4</button>
                        </div>
                     </div>
+                    {isGeneratingVideo && (
+                       <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-sm z-50">
+                          <div className="text-center space-y-2">
+                            <div className="w-8 h-8 border-2 border-purple-500/30 border-t-purple-500 animate-spin mx-auto rounded-full"></div>
+                            <p className="text-[8px] font-black text-white uppercase tracking-widest">{videoGenerationStatus}</p>
+                          </div>
+                       </div>
+                    )}
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center flex-1 p-8 text-center space-y-4">
@@ -406,6 +429,7 @@ const OutcomeView: React.FC<OutcomeViewProps> = ({ results, onMonitorPerformance
                             </div>
                           </div>
                           <button onClick={handleGenerateVideo} className="w-full py-3 bg-purple-600 text-white text-[9px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 transition-all shadow-lg shadow-purple-600/20">Synthesize {targetDuration}s Sequence</button>
+                          {videoError && <p className="text-[8px] text-red-400 uppercase font-black tracking-widest animate-pulse max-w-xs mx-auto">{videoError}</p>}
                         </div>
                       </>
                     )}
@@ -415,8 +439,22 @@ const OutcomeView: React.FC<OutcomeViewProps> = ({ results, onMonitorPerformance
             </div>
 
             <div className="col-span-12 lg:col-span-4 space-y-6">
-              <div className="glass-card rounded-[2rem] p-8 space-y-8 bg-black/40 border-white/5">
-                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Market Integration</h4>
+              <div className="glass-card rounded-[2rem] p-8 space-y-8 bg-black/40 border-white/5 relative">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Market Integration</h4>
+                  <div className="flex items-center gap-2">
+                    {copyFeedback && <span className="text-[7px] font-black text-emerald-400 uppercase animate-pulse">{copyFeedback}</span>}
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(results.copy?.socialPosts?.join('\n\n') || "");
+                        triggerCopyFeedback('All Posts Copied');
+                      }}
+                      className="text-[8px] font-bold text-emerald-400 uppercase hover:underline"
+                    >
+                      Copy All
+                    </button>
+                  </div>
+                </div>
                 <div className="grid grid-cols-4 gap-2">
                   {['META', 'GOOGLE', 'X', 'TIKTOK'].map(p => (
                     <div key={p} className="p-2 border border-white/5 rounded-xl text-center bg-white/5 group hover:bg-emerald-500/10 transition-all cursor-default">
@@ -427,7 +465,19 @@ const OutcomeView: React.FC<OutcomeViewProps> = ({ results, onMonitorPerformance
                 </div>
                 <div className="space-y-6">
                   {results.copy?.socialPosts?.slice(0, 3).map((post, i) => (
-                    <div key={i} className="space-y-2 border-l-2 border-slate-800 pl-4 py-1">
+                    <div key={i} className="space-y-2 border-l-2 border-slate-800 pl-4 py-1 group/post relative">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-[7px] font-bold text-slate-600 uppercase">Post 0{i+1}</span>
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(post);
+                            triggerCopyFeedback('Post Copied');
+                          }}
+                          className="text-[6px] font-black text-slate-500 uppercase hover:text-white transition-colors opacity-0 group-hover/post:opacity-100"
+                        >
+                          Copy
+                        </button>
+                      </div>
                       <p className="text-[11px] text-slate-400 leading-relaxed italic">"{post}"</p>
                     </div>
                   )) || <p className="text-[10px] text-slate-600">Generating social threads...</p>}
