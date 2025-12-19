@@ -6,7 +6,7 @@ export interface Task {
   id: string;
   description: string;
   priority: TaskPriority;
-  dependencyId?: string; // ID of another task that must be completed first
+  dependencyId?: string;
   status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
 }
 
@@ -21,14 +21,28 @@ export interface Agent {
   tasks: Task[];
 }
 
+export interface SwarmConfig {
+  id: string;
+  name: string;
+  agents: Agent[];
+  timestamp: number;
+}
+
 export interface CampaignOutcome {
   id: string;
   name: string;
   status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  isActivated?: boolean;
   objective: string;
   targetAudience: string;
   timestamp: number;
   results?: CampaignResults;
+}
+
+export interface CommunityOutcome extends CampaignOutcome {
+  author: string;
+  revenue: string;
+  likes: number;
 }
 
 export interface CampaignResults {
@@ -38,9 +52,18 @@ export interface CampaignResults {
     body: string;
     cta: string;
     socialPosts: string[];
+    emailSubject: string;
+    emailBody: string;
   };
+  distribution: {
+    channel: string;
+    action: string;
+  }[];
   visualPrompt: string;
+  videoPrompt: string;
   visualUrl?: string;
+  videoUrl?: string;
+  campaignAsset?: string; // Base64 of logo or reference image
 }
 
 export interface AgentActivity {
@@ -48,4 +71,17 @@ export interface AgentActivity {
   role: AgentRole;
   message: string;
   timestamp: number;
+  isLog?: boolean;
+}
+
+export interface ClientProposal {
+  clientName: string;
+  executiveSummary: string;
+  swarmBenefits: string[];
+  pricingComparison: {
+    traditional: string;
+    asb: string;
+    savings: string;
+  };
+  deliveryTimeline: string;
 }

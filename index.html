@@ -14,12 +14,16 @@
       darkMode: 'class',
       theme: {
         extend: {
+          fontSize: {
+            'xxs': '0.6rem',
+            'compact-h1': '2rem',
+            'compact-h2': '1.5rem',
+          },
           colors: {
             brand: {
-              bg: 'var(--bg-color)',
-              text: 'var(--text-color)',
-              card: 'var(--card-bg)',
-              border: 'var(--border-color)',
+              bg: '#020617',
+              accent: '#10b981',
+              pink: '#ec4899',
             }
           }
         }
@@ -28,44 +32,66 @@
   </script>
   <style>
     :root {
-      --bg-color: #f9fafb;
-      --text-color: #111827;
-      --card-bg: rgba(255, 255, 255, 0.8);
-      --border-color: rgba(0, 0, 0, 0.1);
-    }
-    .dark {
-      --bg-color: #030712;
-      --text-color: #f9fafb;
-      --card-bg: rgba(17, 24, 39, 0.7);
-      --border-color: rgba(255, 255, 255, 0.1);
+      --bg-color: #020617;
+      --text-color: #f8fafc;
+      --card-bg: rgba(15, 23, 42, 0.4);
+      --border-color: rgba(255, 255, 255, 0.08);
     }
     body {
       font-family: 'Inter', sans-serif;
       background-color: var(--bg-color);
       color: var(--text-color);
-      transition: background-color 0.3s ease, color 0.3s ease;
+      font-size: 13px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
     }
     h1, h2, h3, .brand-font {
       font-family: 'Outfit', sans-serif;
+      letter-spacing: -0.01em;
     }
     .aura-gradient {
       background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+    }
+    .monitor-gradient {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
     }
     .glass-card {
       background: var(--card-bg);
       backdrop-filter: blur(12px);
       border: 1px solid var(--border-color);
-      transition: background 0.3s ease, border-color 0.3s ease;
     }
     .custom-scrollbar::-webkit-scrollbar {
-      width: 6px;
-    }
-    .custom-scrollbar::-webkit-scrollbar-track {
-      background: transparent;
+      width: 4px;
     }
     .custom-scrollbar::-webkit-scrollbar-thumb {
       background: rgba(128, 128, 128, 0.2);
       border-radius: 10px;
+    }
+    .ticker-bar {
+      background: #9333ea;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: white;
+      white-space: nowrap;
+      overflow: hidden;
+      position: relative;
+    }
+    .ticker-content {
+      display: inline-block;
+      padding-right: 50px;
+    }
+    @keyframes ticker {
+      0% { transform: translate3d(0, 0, 0); }
+      100% { transform: translate3d(-50%, 0, 0); }
+    }
+    .ticker-animate {
+      animation: ticker 20s linear infinite;
     }
   </style>
 <script type="importmap">
@@ -79,7 +105,7 @@
 }
 </script>
 </head>
-<body class="overflow-x-hidden">
+<body class="overflow-x-hidden custom-scrollbar bg-brand-bg">
   <div id="root"></div>
 </body>
 </html>

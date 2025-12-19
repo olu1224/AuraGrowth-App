@@ -1,5 +1,8 @@
 {
   "name": "AuraGrowth ASB",
   "description": "AuraGrowth is an Agentic Service Business (ASB) platform that delivers end-to-end digital marketing outcomes. Instead of selling software, AuraGrowth deploys specialized AI agents—Researchers, Strategists, and Creators—to deliver ready-to-launch campaign results, focusing on performance-driven outcomes for solo entrepreneurs and high-growth startups.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
 }

@@ -45,13 +45,23 @@ const LedgerView: React.FC<LedgerViewProps> = ({ history, onSelectOutcome }) => 
           >
             <div className="h-40 w-full relative overflow-hidden">
               {item.results?.visualUrl ? (
-                <img src={item.results.visualUrl} alt={item.name} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500" />
+                <img src={item.results.visualUrl} alt={item.name} className={`w-full h-full object-cover transition-all duration-500 ${item.isActivated ? '' : 'grayscale group-hover:grayscale-0'}`} />
               ) : (
                 <div className="w-full h-full bg-white/5 animate-pulse"></div>
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-gray-950 to-transparent"></div>
+              
+              {item.isActivated && (
+                <div className="absolute top-4 right-4 flex items-center gap-2 bg-emerald-500 px-3 py-1 rounded-full text-white text-[8px] font-bold shadow-lg animate-pulse">
+                  <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
+                  LIVE IN MARKET
+                </div>
+              )}
+
               <div className="absolute bottom-4 left-4 right-4">
-                <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-1">VERIFIED OUTCOME</div>
+                <div className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${item.isActivated ? 'text-emerald-400' : 'text-gray-400'}`}>
+                  {item.isActivated ? 'VERIFIED OUTCOME' : 'DRAFT ASSET'}
+                </div>
                 <h4 className="text-lg font-bold text-white truncate">{item.name}</h4>
               </div>
             </div>
@@ -66,8 +76,8 @@ const LedgerView: React.FC<LedgerViewProps> = ({ history, onSelectOutcome }) => 
                 <div className="text-[10px] text-gray-600 font-mono">
                   {new Date(item.timestamp).toLocaleDateString()} @ {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                 </div>
-                <button className="text-[10px] font-bold text-purple-400 uppercase tracking-widest group-hover:underline">
-                  Inspect Result
+                <button className={`text-[10px] font-bold uppercase tracking-widest group-hover:underline ${item.isActivated ? 'text-emerald-400' : 'text-purple-400'}`}>
+                  {item.isActivated ? 'Inspect Stats' : 'Inspect Result'}
                 </button>
               </div>
             </div>
