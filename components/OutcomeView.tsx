@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { CampaignResults } from '../types';
 import { geminiService } from '../services/geminiService';
 
@@ -10,152 +10,45 @@ interface OutcomeViewProps {
 }
 
 const OutcomeView: React.FC<OutcomeViewProps> = ({ results, onMonitorPerformance, isActivated }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'Assets' | 'Briefing' | 'Roadmap' | 'Guide'>('Assets');
+  const [activeSubTab, setActiveSubTab] = useState<'Assets' | 'Intelligence' | 'Roadmap' | 'Audit'>('Assets');
   
-  const [localCampaignAsset, setLocalCampaignAsset] = useState<string | undefined>(results.campaignAsset);
-  const [videoUrl, setVideoUrl] = useState<string | undefined>(results.videoUrl);
-  const [visualUrl, setVisualUrl] = useState<string | undefined>(results.visualUrl);
+  const [localCampaignAsset, setLocalCampaignAsset] = useState<string | undefined>(results?.campaignAsset);
+  const [videoUrl, setVideoUrl] = useState<string | undefined>(results?.videoUrl);
+  const [visualUrl, setVisualUrl] = useState<string | undefined>(results?.visualUrl);
   
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [videoGenerationStatus, setVideoGenerationStatus] = useState<string>('');
   const [videoError, setVideoError] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   
   const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('16:9');
-  const [targetDuration, setTargetDuration] = useState<number>(8); // Default 8s
+  const [targetDuration, setTargetDuration] = useState<number>(8);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Sync state if props change (though parent key usually handles this)
+  useEffect(() => {
+    if (results) {
+      setVisualUrl(results.visualUrl);
+      setVideoUrl(results.videoUrl);
+      setLocalCampaignAsset(results.campaignAsset);
+    }
+  }, [results]);
 
   const triggerCopyFeedback = (msg: string) => {
     setCopyFeedback(msg);
     setTimeout(() => setCopyFeedback(null), 2000);
   };
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setLocalCampaignAsset(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const downloadImage = () => {
-    if (!visualUrl) return;
-    const link = document.createElement('a');
-    link.href = visualUrl;
-    link.download = `AuraGrowth-Hero-${Date.now()}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleGenerateImage = async () => {
-    if (isGeneratingImage) return;
-    setIsGeneratingImage(true);
-    try {
-      const newUrl = await geminiService.generateCampaignImage(results.visualPrompt, localCampaignAsset);
-      if (newUrl) setVisualUrl(newUrl);
-    } catch (error) {
-      console.error("Image Regeneration Error:", error);
-    } finally {
-      setIsGeneratingImage(false);
-    }
-  };
-
-  const handleGenerateVideo = async () => {
-    if (isGeneratingVideo) return;
-    
-    setIsGeneratingVideo(true);
-    setVideoError(null);
-    setVideoGenerationStatus('Initializing Swarm Brain...');
-    
-    // We don't setVideoUrl(undefined) immediately so the user can still see 
-    // the previous video if the new one fails partway.
-    
-    try {
-      const effectiveAspectRatio = localCampaignAsset ? '16:9' : videoAspectRatio;
-      const extensions = targetDuration === 15 ? 1 : targetDuration === 30 ? 3 : targetDuration === 60 ? 7 : 0;
-      const willExtend = extensions > 0;
-
-      // 1. Initial Segment (0-8s)
-      setVideoGenerationStatus('Guardian-QC: Synthesizing Initial Segment (0-8s)...');
-      const initialResult = await geminiService.generateCampaignVideo(results.videoPrompt, effectiveAspectRatio, localCampaignAsset, willExtend);
-      
-      if (!initialResult) throw new Error("Base narrative synthesis failed.");
-
-      let currentRawVideo = initialResult.rawVideo;
-      let currentSignedUrl = initialResult.url;
-      
-      // Update preview immediately with the first segment
-      setVideoUrl(currentSignedUrl);
-
-      // 2. Chained Extensions Loop
-      for (let i = 0; i < extensions; i++) {
-        const estProgress = 8 + (i + 1) * 7;
-        setVideoGenerationStatus(`Guardian-QC: Extending Neural Sequence ${i + 1}/${extensions} (~${estProgress}s)...`);
-        
-        try {
-          const extendedResult = await geminiService.extendCampaignVideo(results.videoPrompt, currentRawVideo, effectiveAspectRatio);
-          
-          if (!extendedResult) {
-            setVideoError(`Extension ${i+1} failed. Showing longest successful segment.`);
-            break; 
-          }
-          
-          currentRawVideo = extendedResult.rawVideo;
-          currentSignedUrl = extendedResult.url;
-          
-          // Update video player as segments complete
-          setVideoUrl(currentSignedUrl);
-        } catch (extErr: any) {
-          console.warn(`Extension loop ${i + 1} failed:`, extErr);
-          setVideoError(`Partial synthesis achieved (${estProgress - 7}s). Quota or network interruption.`);
-          break; // Keep showing the last successful URL
-        }
-      }
-
-      setVideoGenerationStatus('Guardian-QC: Finalizing Sequence...');
-      await new Promise(r => setTimeout(r, 1000)); 
-      setVideoGenerationStatus(`Synthesis Complete: Outcome Released.`);
-      
-    } catch (error: any) {
-      console.error("Master Video Synthesis Error:", error);
-      setVideoError(error.message || "Synthesis interrupted. Verify API key/quota.");
-      setVideoGenerationStatus('Synthesis failed.');
-    } finally {
-      setIsGeneratingVideo(false);
-    }
-  };
-
-  const downloadVideo = () => {
-    if (!videoUrl) return;
-    const link = document.createElement('a');
-    link.href = videoUrl;
-    link.download = `AuraGrowth-Motion-${targetDuration}s-${Date.now()}.mp4`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   const handleExportJSON = () => {
+    if (!results) return;
     const exportData = {
-      ...results,
-      campaignAsset: localCampaignAsset,
-      visualUrl: visualUrl,
-      videoMetadata: {
-        url: videoUrl,
-        aspectRatio: localCampaignAsset ? '16:9' : videoAspectRatio,
-        durationSeconds: targetDuration,
-        prompt: results.videoPrompt,
-        brandingIntegrated: !!localCampaignAsset
-      },
-      deliveryMeta: {
-        generatedAt: new Date().toISOString(),
-        isActivated: !!isActivated
+      manifestId: `AG-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      status: isActivated ? 'ACTIVE_MARKET' : 'DRAFT_STRATEGY',
+      blueprint: results,
+      media: {
+        visualHero: visualUrl,
+        motionSequence: videoUrl,
+        brandAssetRef: localCampaignAsset ? 'INTEGRATED' : 'NONE'
       }
     };
     
@@ -169,386 +62,378 @@ const OutcomeView: React.FC<OutcomeViewProps> = ({ results, onMonitorPerformance
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    triggerCopyFeedback('JSON Exported');
   };
 
-  const handleExportPackage = () => {
-    const timestamp = new Date().toLocaleString();
-    const divider = "\n" + "=".repeat(60) + "\n";
+  const handleExportManifest = () => {
+    if (!results) return;
+    const divider = "\n" + "=".repeat(70) + "\n";
     
-    let content = `AURAGROWTH ASB - MASTER DELIVERY PACKAGE\nGenerated: ${timestamp}\n`;
-    content += `Status: ${isActivated ? 'LIVE IN MARKET' : 'DRAFT OUTCOME'}\n`;
+    let content = `AURAGROWTH ASB | STRATEGIC OUTCOME MANIFEST\n`;
+    content += `GENERATED: ${new Date().toLocaleString()}\n`;
+    content += `STATUS: ${isActivated ? 'MARKET READY / ACTIVATED' : 'STRATEGIC DRAFT'}\n`;
     content += divider;
-    content += `1. STRATEGIC BLUEPRINT:\n${results.strategy}\n`;
-    content += divider;
-    content += `2. MULTI-CHANNEL COPY ASSETS:\n`;
-    content += `Headline: ${results.copy.headline}\n`;
-    content += `Body: ${results.copy.body}\n`;
-    content += `CTA: ${results.copy.cta}\n\n`;
     
-    content += `SOCIAL THREADS / POSTS:\n`;
-    results.copy.socialPosts.forEach((post, i) => {
-      content += `[POST ${i + 1}] ${post}\n`;
+    content += `\n1. EXECUTIVE SUMMARY\n`;
+    content += results.executiveSummary + "\n";
+    
+    content += divider;
+    content += `\n2. MARKET INTELLIGENCE (SWOT ANALYSIS)\n`;
+    content += `[STRENGTHS]:\n- ${(results.marketIntelligence?.swotAnalysis?.strengths || []).join('\n- ')}\n`;
+    content += `\n[WEAKNESSES]:\n- ${(results.marketIntelligence?.swotAnalysis?.weaknesses || []).join('\n- ')}\n`;
+    content += `\n[OPPORTUNITIES]:\n- ${(results.marketIntelligence?.swotAnalysis?.opportunities || []).join('\n- ')}\n`;
+    content += `\n[THREATS]:\n- ${(results.marketIntelligence?.swotAnalysis?.threats || []).join('\n- ')}\n`;
+    
+    content += `\nCOMPETITOR VULNERABILITIES:\n- ${(results.marketIntelligence?.competitorVulnerabilities || []).join('\n- ')}\n`;
+    
+    content += divider;
+    content += `\n3. AUDIENCE DOSSIER\n`;
+    (results.audienceDossier?.icps || []).forEach((icp, i) => {
+      content += `\n[PERSONA ${i+1}]: ${icp.personaName}\n`;
+      content += `PAIN POINTS: ${icp.painPoints?.join(', ') || 'N/A'}\n`;
+      content += `MOTIVATIONS: ${icp.motivations?.join(', ') || 'N/A'}\n`;
     });
     
     content += divider;
-    content += `3. DIRECT NARRATIVE (EMAIL):\n`;
-    content += `Subject: ${results.copy.emailSubject}\n`;
-    content += `Body: ${results.copy.emailBody}\n`;
+    content += `\n4. CORE OFFER ARCHITECTURE\n`;
+    content += `HOOK: ${results.coreOfferArchitecture?.hook || 'N/A'}\n`;
+    content += `TRANSFORMATION: ${results.coreOfferArchitecture?.transformation || 'N/A'}\n`;
+    content += `GUARANTEE: ${results.coreOfferArchitecture?.guarantee || 'N/A'}\n`;
     
     content += divider;
-    content += `4. DEPLOYMENT ROADMAP & PHASING:\n`;
-    results.distribution.forEach((step, i) => {
-      content += `PHASE 0${i + 1} | CHANNEL: ${step.channel.padEnd(10)} | ACTION: ${step.action}\n`;
+    content += `\n5. MULTI-CHANNEL MESSAGING\n`;
+    content += `HEADLINE: ${results.copy?.headline || 'N/A'}\n`;
+    content += `BODY: ${results.copy?.body || 'N/A'}\n`;
+    content += `CTA: ${results.copy?.cta || 'N/A'}\n`;
+    
+    content += divider;
+    content += `\n6. PHASED EXECUTION ROADMAP\n`;
+    (results.phasedRoadmap || []).forEach((phase, i) => {
+      content += `\nPHASE 0${i+1}: ${phase.phaseName}\n`;
+      content += `OBJECTIVE: ${phase.objective}\n`;
+      content += `ACTIONS: ${phase.actions?.join(', ') || 'N/A'}\n`;
     });
     
     content += divider;
-    content += `5. NEURAL MEDIA MANIFEST:\n`;
-    content += `Visual Hero Prompt: ${results.visualPrompt}\n`;
-    content += `Motion Dynamics Prompt: ${results.videoPrompt}\n`;
-    if (localCampaignAsset) {
-      content += `Attached Brand Asset: Integrated via Neural Asset Reference\n`;
-    }
-    if (videoUrl) {
-      content += `Video Duration: ${targetDuration} seconds\n`;
-      content += `Video Aspect Ratio: ${localCampaignAsset ? '16:9' : videoAspectRatio}\n`;
-    } else {
-      content += `Video Status: Pending Synthesis\n`;
-    }
-    
+    content += `\n7. GUARDIAN-QC AUDIT CERTIFICATE\n`;
+    content += `SCORE: ${results.auditCertificate?.score || 0}/100\n`;
+    content += `READINESS: ${results.auditCertificate?.readinessStatus || 'ALPHA'}\n`;
     content += divider;
-    content += `DELIVERY GUIDE & UTILIZATION:\n`;
-    content += `- TXT GUIDE: Operational blueprint for execution teams.\n`;
-    content += `- JSON BLUEPRINT: Programmatic core for automated system ingestion.\n`;
-    content += `- MULTIMEDIA: Use 'Download' buttons in Dashboard for PNG/MP4 source files.\n`;
+    content += `END OF MANIFEST`;
 
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `AuraGrowth-Guide-${Date.now()}.txt`;
+    link.download = `AuraGrowth-Manifest-${Date.now()}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    triggerCopyFeedback('Manifest Exported');
+  };
+
+  const handleGenerateVideo = async () => {
+    if (isGeneratingVideo || !results) return;
+    setIsGeneratingVideo(true);
+    setVideoError(null);
+    setVideoGenerationStatus('Initializing Swarm Brain...');
+    try {
+      const effectiveAspectRatio = localCampaignAsset ? '16:9' : videoAspectRatio;
+      const extensions = targetDuration === 15 ? 1 : targetDuration === 30 ? 3 : targetDuration === 60 ? 7 : 0;
+      const willExtend = extensions > 0;
+
+      // Enhance the prompt with duration and anti-artifact directives
+      const durationDirective = `Target Duration: ${targetDuration} seconds.`;
+      const artifactDirective = `DIRECTIVE: ABSOLUTELY NO TEXT, NO LOGOS, NO WATERMARKS, NO NUMERALS, NO CAPTIONS. Focus on high-fidelity visual texture and movement.`;
+      const enhancedVideoPrompt = `${results.videoPrompt}. ${durationDirective} ${artifactDirective}`;
+
+      setVideoGenerationStatus('Guardian-QC: Synthesizing Initial Segment...');
+      const initialResult = await geminiService.generateCampaignVideo(enhancedVideoPrompt, effectiveAspectRatio, localCampaignAsset, willExtend);
+      if (!initialResult) throw new Error("Base synthesis failed.");
+
+      let currentRawVideo = initialResult.rawVideo;
+      setVideoUrl(initialResult.url);
+
+      for (let i = 0; i < extensions; i++) {
+        setVideoGenerationStatus(`Guardian-QC: Neural Extension Phase ${i + 1}/${extensions}...`);
+        const extendedResult = await geminiService.extendCampaignVideo(enhancedVideoPrompt, currentRawVideo, effectiveAspectRatio);
+        if (!extendedResult) break;
+        currentRawVideo = extendedResult.rawVideo;
+        setVideoUrl(extendedResult.url);
+      }
+      setVideoGenerationStatus(`Synthesis Successfully Released.`);
+    } catch (error: any) {
+      console.error("Video synthesis failed:", error);
+      setVideoError(error.message || "Synthesis interrupted.");
+    } finally {
+      setIsGeneratingVideo(false);
+    }
   };
 
   const tabs = [
-    { id: 'Assets' as const, label: 'Outcome Assets' },
-    { id: 'Briefing' as const, label: 'Intelligence Briefing' },
-    { id: 'Roadmap' as const, label: 'Deployment Roadmap' },
-    { id: 'Guide' as const, label: 'Delivery Guide' },
+    { id: 'Assets' as const, label: 'Media Assets' },
+    { id: 'Intelligence' as const, label: 'Strategic Dossier' },
+    { id: 'Roadmap' as const, label: 'Execution Roadmap' },
+    { id: 'Audit' as const, label: 'Audit Manifest' },
   ];
+
+  if (!results) return (
+    <div className="p-20 text-center text-slate-500 font-bold uppercase tracking-widest animate-pulse">
+      Waiting for outcome results...
+    </div>
+  );
 
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-700">
-      <div className="flex gap-8 border-b border-white/5 pb-2">
+      <div className="flex gap-8 border-b border-white/5 pb-2 overflow-x-auto custom-scrollbar">
         {tabs.map((tab) => (
           <button 
             key={tab.id}
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveSubTab(tab.id);
-            }}
-            className={`text-[10px] font-black uppercase tracking-[0.2em] pb-3 relative transition-all cursor-pointer z-10 ${
-              activeSubTab === tab.id 
-                ? 'text-purple-400 opacity-100' 
-                : 'text-slate-500 opacity-60 hover:opacity-100 hover:text-slate-300'
+            onClick={() => setActiveSubTab(tab.id)}
+            className={`text-[10px] font-black uppercase tracking-[0.2em] pb-3 whitespace-nowrap transition-all relative z-10 ${
+              activeSubTab === tab.id ? 'text-purple-400 opacity-100' : 'text-slate-500 opacity-60 hover:opacity-100 hover:text-slate-300'
             }`}
           >
             {tab.label}
-            {activeSubTab === tab.id && (
-              <span className="absolute bottom-[-1px] left-0 right-0 h-[2px] bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.8)] z-20"></span>
-            )}
+            {activeSubTab === tab.id && <span className="absolute bottom-[-1px] left-0 right-0 h-[2px] bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.8)]"></span>}
           </button>
         ))}
       </div>
 
       <div className="min-h-[500px] w-full">
         {activeSubTab === 'Assets' && (
-          <div className="grid grid-cols-12 gap-6 items-start animate-in fade-in slide-in-from-left-2 duration-500">
-            <div className="col-span-12 lg:col-span-4 space-y-6">
-              <div className="glass-card rounded-[2rem] p-8 border-purple-500/20 relative group">
-                <div className="absolute top-4 right-6 text-[8px] font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded tracking-widest uppercase">Est. Agency Value: $8,500</div>
-                <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-6 border-l-2 border-purple-500 pl-4">Campaign Strategy</h4>
-                <p className="text-[13px] text-slate-200 leading-relaxed font-medium">
-                  {results.strategy || "Strategizing next steps..."}
-                </p>
+          <div className="grid grid-cols-12 gap-6 items-start">
+            <div className="col-span-12 lg:col-span-6 space-y-6">
+              <div className="glass-card rounded-[2rem] overflow-hidden border-white/5 relative group aspect-video">
+                {visualUrl ? (
+                  <img src={visualUrl} alt="Hero" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-[4s]" />
+                ) : (
+                  <div className="w-full h-full bg-slate-800 animate-pulse flex items-center justify-center text-xs font-black uppercase text-slate-600 tracking-widest">Rendering Master Visual...</div>
+                )}
+                <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-black/80 to-transparent flex justify-between items-end">
+                   <div className="space-y-1">
+                      <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">Cinematic Static Release</span>
+                      <h4 className="text-white font-black text-sm brand-font">Hero Identity Asset</h4>
+                   </div>
+                   <button className="px-4 py-2 bg-white/10 text-white text-[9px] font-black uppercase rounded-lg border border-white/10 hover:bg-white/20 transition-all">Export 1K</button>
+                </div>
               </div>
 
-              <div className="glass-card rounded-[2rem] p-8 space-y-6 bg-slate-900/40 border-white/5 relative">
+              <div className="glass-card rounded-[2.5rem] p-8 space-y-6 bg-slate-900/40 border-white/10">
                 <div className="flex justify-between items-center">
-                  <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Ad Copy & Hook</h4>
-                  <div className="flex items-center gap-2">
-                    {copyFeedback && <span className="text-[7px] font-black text-emerald-400 uppercase animate-pulse">{copyFeedback}</span>}
-                    <button 
-                      onClick={() => {
-                        navigator.clipboard.writeText(`${results.copy?.headline}\n\n${results.copy?.body}`);
-                        triggerCopyFeedback('All Copied');
-                      }} 
-                      className="text-[8px] font-bold text-pink-500 uppercase hover:underline"
-                    >
-                      Copy All
-                    </button>
-                  </div>
+                  <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Messaging Manifest</h4>
+                  {copyFeedback && <span className="text-[8px] font-black text-emerald-400 uppercase animate-pulse">{copyFeedback}</span>}
                 </div>
                 <div className="space-y-4">
                   <div>
-                    <span className="text-[8px] font-bold text-slate-600 uppercase">Headline</span>
-                    <p className="text-lg font-black text-white leading-tight mt-1">{results.copy?.headline || "Catchy Headline"}</p>
+                    <span className="text-[8px] font-bold text-slate-600 uppercase">Strategic Hook</span>
+                    <p className="text-xl font-black text-white leading-tight mt-1">{results.copy?.headline || '...'}</p>
                   </div>
-                  <div className="group/body">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-[8px] font-bold text-slate-600 uppercase">Body Text</span>
-                      <button 
-                        onClick={() => {
-                          navigator.clipboard.writeText(results.copy?.body || "");
-                          triggerCopyFeedback('Body Copied');
-                        }}
-                        className="text-[7px] font-black text-slate-500 uppercase hover:text-white transition-colors"
-                      >
-                        Copy
-                      </button>
+                  <div className="p-4 bg-black/40 rounded-2xl border border-white/5">
+                    <div className="flex justify-between items-center mb-2">
+                       <span className="text-[8px] font-bold text-slate-600 uppercase">Dossier Narrative</span>
+                       <button onClick={() => { navigator.clipboard.writeText(results.copy?.body || ''); triggerCopyFeedback('Copied'); }} className="text-[7px] font-black text-purple-400 uppercase hover:underline">Copy Body</button>
                     </div>
-                    <p className="text-[11px] text-slate-400 leading-relaxed mt-1">{results.copy?.body || "Compelling body text content goes here..."}</p>
+                    <p className="text-xs text-slate-400 leading-relaxed font-medium">{results.copy?.body || 'Generating narrative...'}</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="col-span-12 lg:col-span-4 space-y-6">
-              <div className="glass-card rounded-[2rem] overflow-hidden border-white/5 relative group h-[300px]">
-                {visualUrl ? (
-                  <img src={visualUrl} alt="Visual Outcome" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-[3s]" />
-                ) : (
-                  <div className="w-full h-full bg-slate-800 animate-pulse flex items-center justify-center text-[10px] font-black uppercase text-slate-600 tracking-[0.3em]">Rendering Master Asset...</div>
-                )}
-                
-                <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-black via-black/20 to-transparent flex justify-between items-end">
-                  <div className="space-y-1">
-                    <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">AI Static Asset</span>
-                    <div className="flex gap-2">
-                      <button onClick={downloadImage} className="px-3 py-1.5 bg-purple-600 text-white text-[8px] font-black uppercase tracking-widest rounded-lg hover:brightness-110 transition-all">Download</button>
-                      <button 
-                        onClick={handleGenerateImage} 
-                        disabled={isGeneratingImage}
-                        className="px-3 py-1.5 bg-white/10 text-white text-[8px] font-black uppercase tracking-widest rounded-lg hover:bg-white/20 transition-all border border-white/10"
-                      >
-                        {isGeneratingImage ? 'Synthesizing...' : 'Regenerate Hero'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="glass-card rounded-[2rem] overflow-hidden border-white/5 relative group min-h-[220px] bg-slate-900/60 flex flex-col">
-                {videoUrl ? (
-                  <div className="w-full h-full space-y-3 p-4">
-                    <div className={`mx-auto rounded-xl overflow-hidden bg-black border border-white/5 relative aspect-video w-full`}>
-                       <video 
-                         key={videoUrl} 
-                         src={videoUrl} 
-                         controls 
-                         autoPlay 
-                         muted 
-                         loop
-                         playsInline
-                         className="w-full h-full object-cover" 
-                       />
-                       <div className="absolute top-2 right-2 px-2 py-0.5 bg-black/60 rounded text-[7px] font-bold text-emerald-400 uppercase">Neural Pipeline Status: Active</div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                       <span className="text-[8px] font-black text-purple-400 uppercase tracking-widest">Motion Outcome</span>
-                       <div className="flex gap-2">
-                         <button onClick={() => { setVideoUrl(undefined); setVideoError(null); }} className="px-3 py-1.5 bg-white/5 text-slate-400 text-[8px] font-black uppercase tracking-widest rounded-lg hover:bg-white/10 transition-all">New Version</button>
-                         <button onClick={downloadVideo} className="px-3 py-1.5 bg-pink-600 text-white text-[8px] font-black uppercase tracking-widest rounded-lg hover:brightness-110 transition-all">Download MP4</button>
-                       </div>
-                    </div>
-                    {isGeneratingVideo && (
-                       <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-sm z-50">
-                          <div className="text-center space-y-2">
-                            <div className="w-8 h-8 border-2 border-purple-500/30 border-t-purple-500 animate-spin mx-auto rounded-full"></div>
-                            <p className="text-[8px] font-black text-white uppercase tracking-widest">{videoGenerationStatus}</p>
-                          </div>
-                       </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center flex-1 p-8 text-center space-y-4">
-                    {isGeneratingVideo ? (
-                      <div className="space-y-4 w-full">
-                        <div className="w-12 h-12 rounded-full border-2 border-purple-500/30 border-t-purple-500 animate-spin mx-auto"></div>
-                        <div className="space-y-1">
-                           <p className="text-[10px] font-black text-white uppercase tracking-widest animate-pulse">Growing Narrative...</p>
-                           <p className="text-[8px] text-slate-500 italic uppercase">{videoGenerationStatus}</p>
+            <div className="col-span-12 lg:col-span-6 space-y-6">
+               <div className="glass-card rounded-[2rem] overflow-hidden border-white/5 relative group bg-slate-900 flex flex-col min-h-[400px]">
+                 {videoUrl ? (
+                   <div className="p-4 space-y-4">
+                     <video key={videoUrl} src={videoUrl} controls autoPlay muted loop playsInline className="w-full aspect-video rounded-2xl object-cover shadow-2xl border border-white/10" />
+                     <div className="flex justify-between items-center px-2">
+                        <span className="text-[9px] font-black text-purple-400 uppercase tracking-widest">Motion Outcome Finalized</span>
+                        <div className="flex gap-2">
+                          <button onClick={() => setVideoUrl(undefined)} className="px-4 py-2 bg-white/5 text-slate-400 text-[9px] font-black uppercase rounded-lg border border-white/10">Re-Synthesize</button>
+                          <button className="px-4 py-2 bg-pink-600 text-white text-[9px] font-black uppercase rounded-lg shadow-lg">Download 720p</button>
                         </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-6 w-full justify-center">
-                          <div 
-                            onClick={() => fileInputRef.current?.click()}
-                            className="w-16 h-16 rounded-2xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center bg-white/5 cursor-pointer hover:border-purple-500/50 transition-all relative overflow-hidden group/logo"
-                          >
-                            {localCampaignAsset ? (
-                              <img src={localCampaignAsset} alt="Brand Asset" className="w-full h-full object-cover opacity-60 group-hover/logo:opacity-100 transition-opacity" />
-                            ) : (
-                              <span className="text-xl">📁</span>
-                            )}
-                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/logo:opacity-100 bg-black/40 transition-opacity">
-                              <span className="text-[6px] font-black text-white uppercase tracking-widest">Update Logo</span>
-                            </div>
-                            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                     </div>
+                   </div>
+                 ) : (
+                   <div className="flex flex-col items-center justify-center flex-1 p-10 text-center space-y-8">
+                      {isGeneratingVideo ? (
+                        <div className="space-y-6">
+                          <div className="relative">
+                            <div className="w-16 h-16 border-2 border-purple-500/10 border-t-purple-500 animate-spin mx-auto rounded-full"></div>
+                            <div className="absolute inset-0 flex items-center justify-center text-xs animate-pulse">⚙️</div>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-[11px] font-black text-white uppercase tracking-[0.3em] animate-pulse">Synthesizing {targetDuration}s Motion...</p>
+                            <p className="text-[9px] text-slate-500 uppercase italic font-bold tracking-widest">{videoGenerationStatus}</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="space-y-3">
+                            <div className="inline-block px-3 py-1 bg-purple-500/10 border border-purple-500/20 rounded-full text-[8px] font-black text-purple-400 uppercase tracking-widest">Advanced Motion Architecture</div>
+                            <h4 className="text-2xl font-black text-white brand-font uppercase tracking-tight">Cinematic Synthesis</h4>
+                            <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">Synthesize a cinema-grade motion sequence for your brand objective. Requests longer sequences up to 60 seconds.</p>
                           </div>
                           
-                          <div className="text-left space-y-1">
-                            <h4 className="text-[10px] font-black text-white uppercase tracking-widest">Brand Integration</h4>
-                            <p className="text-[7px] text-slate-500 uppercase font-bold leading-tight max-w-[120px]">Upload a logo or reference image to embed it naturally in the video.</p>
+                          <div className="space-y-4 w-full max-w-xs">
+                             <div className="flex justify-between items-center mb-1">
+                               <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Duration Profile</span>
+                               <span className="text-[9px] font-black text-purple-400 uppercase tracking-widest">{targetDuration}s</span>
+                             </div>
+                             <div className="flex justify-center gap-2">
+                               {[8, 15, 30, 60].map(d => (
+                                 <button key={d} onClick={() => setTargetDuration(d)} className={`flex-1 py-3 rounded-xl text-[10px] font-bold uppercase border transition-all ${targetDuration === d ? 'bg-purple-600 border-purple-500 text-white shadow-lg' : 'bg-white/5 border-white/10 text-slate-500 hover:bg-white/10'}`}>{d}s</button>
+                               ))}
+                             </div>
                           </div>
-                        </div>
 
-                        <div className="space-y-4 w-full">
-                          <div className="flex flex-col gap-2">
-                            <div className="flex justify-center gap-1.5">
-                              {[8, 15, 30, 60].map(d => (
-                                <button key={d} onClick={() => setTargetDuration(d)} className={`px-3 py-1.5 rounded-lg text-[8px] font-bold uppercase transition-all ${targetDuration === d ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/30' : 'bg-white/5 text-slate-500 border border-white/10 hover:border-white/30'}`}>{d}s</button>
-                              ))}
+                          {videoError && (
+                            <div className="p-3 bg-red-500/5 border border-red-500/20 rounded-xl text-[10px] text-red-400 font-bold uppercase tracking-tight">
+                              Error: {videoError}
                             </div>
-                            <div className="flex justify-center gap-2">
-                              {localCampaignAsset ? (
-                                <div className="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-[8px] font-bold text-emerald-500 uppercase tracking-widest flex items-center gap-2">
-                                  <span className="w-1 h-1 bg-emerald-500 rounded-full"></span>
-                                  Locked to 16:9 (Brand Reference)
-                                </div>
-                              ) : (
-                                <>
-                                  <button onClick={() => setVideoAspectRatio('16:9')} className={`px-3 py-1.5 rounded-lg text-[8px] font-bold uppercase transition-all ${videoAspectRatio === '16:9' ? 'bg-white text-black' : 'bg-white/5 text-slate-500 border border-white/10'}`}>16:9 Land</button>
-                                  <button onClick={() => setVideoAspectRatio('9:16')} className={`px-3 py-1.5 rounded-lg text-[8px] font-bold uppercase transition-all ${videoAspectRatio === '9:16' ? 'bg-white text-black' : 'bg-white/5 text-slate-500 border border-white/10'}`}>9:16 Port</button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          <button onClick={handleGenerateVideo} className="w-full py-3 bg-purple-600 text-white text-[9px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 transition-all shadow-lg shadow-purple-600/20">Synthesize {targetDuration}s Sequence</button>
-                          {videoError && <p className="text-[8px] text-red-400 uppercase font-black tracking-widest animate-pulse max-w-xs mx-auto">{videoError}</p>}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
+                          )}
 
-            <div className="col-span-12 lg:col-span-4 space-y-6">
-              <div className="glass-card rounded-[2rem] p-8 space-y-8 bg-black/40 border-white/5 relative">
-                <div className="flex justify-between items-center">
-                  <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Market Integration</h4>
-                  <div className="flex items-center gap-2">
-                    {copyFeedback && <span className="text-[7px] font-black text-emerald-400 uppercase animate-pulse">{copyFeedback}</span>}
-                    <button 
-                      onClick={() => {
-                        navigator.clipboard.writeText(results.copy?.socialPosts?.join('\n\n') || "");
-                        triggerCopyFeedback('All Posts Copied');
-                      }}
-                      className="text-[8px] font-bold text-emerald-400 uppercase hover:underline"
-                    >
-                      Copy All
-                    </button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {['META', 'GOOGLE', 'X', 'TIKTOK'].map(p => (
-                    <div key={p} className="p-2 border border-white/5 rounded-xl text-center bg-white/5 group hover:bg-emerald-500/10 transition-all cursor-default">
-                      <div className="text-[8px] font-black text-slate-500 group-hover:text-emerald-500 mb-0.5">{p}</div>
-                      <div className="text-[6px] font-black text-slate-700 group-hover:text-emerald-500 uppercase">Pending</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="space-y-6">
-                  {results.copy?.socialPosts?.slice(0, 3).map((post, i) => (
-                    <div key={i} className="space-y-2 border-l-2 border-slate-800 pl-4 py-1 group/post relative">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-[7px] font-bold text-slate-600 uppercase">Post 0{i+1}</span>
-                        <button 
-                          onClick={() => {
-                            navigator.clipboard.writeText(post);
-                            triggerCopyFeedback('Post Copied');
-                          }}
-                          className="text-[6px] font-black text-slate-500 uppercase hover:text-white transition-colors opacity-0 group-hover/post:opacity-100"
-                        >
-                          Copy
-                        </button>
+                          <button onClick={handleGenerateVideo} className="w-full py-5 aura-gradient text-white text-[12px] font-black uppercase tracking-[0.4em] rounded-2xl shadow-2xl shadow-purple-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all">Deploy Motion Swarm</button>
+                        </>
+                      )}
+                   </div>
+                 )}
+               </div>
+
+               <div className="glass-card rounded-[2.5rem] p-8 space-y-6 bg-black/40 border-white/10">
+                 <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Audience Dossier</h4>
+                 <div className="space-y-4">
+                    {(results.audienceDossier?.icps || []).map((icp, i) => (
+                      <div key={i} className="p-4 bg-white/5 border border-white/10 rounded-2xl space-y-3">
+                         <h5 className="text-white font-black text-sm uppercase tracking-tighter">{icp.personaName}</h5>
+                         <div className="grid grid-cols-2 gap-4">
+                            <div>
+                               <span className="text-[7px] font-black text-slate-600 uppercase">Core Pain Points</span>
+                               <ul className="text-[9px] text-slate-400 mt-1 space-y-1">
+                                  {(icp.painPoints || []).map((p, j) => <li key={j}>• {p}</li>)}
+                               </ul>
+                            </div>
+                            <div>
+                               <span className="text-[7px] font-black text-emerald-400 uppercase">Primary Motivations</span>
+                               <ul className="text-[9px] text-slate-400 mt-1 space-y-1">
+                                  {(icp.motivations || []).map((m, j) => <li key={j}>• {m}</li>)}
+                               </ul>
+                            </div>
+                         </div>
                       </div>
-                      <p className="text-[11px] text-slate-400 leading-relaxed italic">"{post}"</p>
-                    </div>
-                  )) || <p className="text-[10px] text-slate-600">Generating social threads...</p>}
-                </div>
-              </div>
+                    ))}
+                 </div>
+               </div>
             </div>
           </div>
         )}
 
-        {activeSubTab === 'Briefing' && (
-          <div className="space-y-6 animate-in fade-in duration-500">
-            <div className="grid grid-cols-12 gap-6">
-              <div className="col-span-12 lg:col-span-8 space-y-6">
-                <div className="glass-card rounded-[2.5rem] p-10 space-y-6 border-emerald-500/20">
-                  <h3 className="text-2xl font-black text-white brand-font uppercase tracking-tighter">Strategic Synthesis</h3>
-                  <div className="prose prose-invert max-w-none"><p className="text-slate-300 leading-relaxed text-sm">{results.strategy}</p></div>
+        {activeSubTab === 'Intelligence' && (
+          <div className="space-y-8 animate-in fade-in duration-500">
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="glass-card rounded-[3rem] p-12 space-y-8 bg-slate-900/20">
+                   <h3 className="text-3xl font-black text-white brand-font uppercase">Executive Summary</h3>
+                   <p className="text-lg text-slate-300 leading-relaxed italic border-l-4 border-purple-500 pl-8">"{results.executiveSummary || 'Strategizing...'}"</p>
                 </div>
-              </div>
-              <div className="col-span-12 lg:col-span-4 space-y-6">
-                <div className="glass-card rounded-[2.5rem] p-8 space-y-6 border-purple-500/20">
-                  <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Neural Vision Key</h4>
-                  <div className="bg-black/40 p-5 rounded-2xl border border-white/10 font-mono text-[10px] text-purple-300 leading-relaxed break-words">{results.visualPrompt}</div>
+
+                <div className="glass-card rounded-[3rem] p-12 space-y-8">
+                   <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Strategic SWOT Matrix</h3>
+                   <div className="grid grid-cols-2 gap-4">
+                      <div className="p-6 bg-emerald-500/5 border border-emerald-500/10 rounded-3xl space-y-3">
+                         <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Strengths</span>
+                         <ul className="text-[10px] text-slate-400 space-y-2">
+                            {(results.marketIntelligence?.swotAnalysis?.strengths || []).map((s, i) => <li key={i}>+ {s}</li>)}
+                         </ul>
+                      </div>
+                      <div className="p-6 bg-blue-500/5 border border-blue-500/10 rounded-3xl space-y-3">
+                         <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Opportunities</span>
+                         <ul className="text-[10px] text-slate-400 space-y-2">
+                            {(results.marketIntelligence?.swotAnalysis?.opportunities || []).map((o, i) => <li key={i}>↗ {o}</li>)}
+                         </ul>
+                      </div>
+                      <div className="p-6 bg-yellow-500/5 border border-yellow-500/10 rounded-3xl space-y-3">
+                         <span className="text-[10px] font-black text-yellow-400 uppercase tracking-widest">Weaknesses</span>
+                         <ul className="text-[10px] text-slate-400 space-y-2">
+                            {(results.marketIntelligence?.swotAnalysis?.weaknesses || []).map((w, i) => <li key={i}>- {w}</li>)}
+                         </ul>
+                      </div>
+                      <div className="p-6 bg-red-500/5 border border-red-500/10 rounded-3xl space-y-3">
+                         <span className="text-[10px] font-black text-red-400 uppercase tracking-widest">Threats</span>
+                         <ul className="text-[10px] text-slate-400 space-y-2">
+                            {(results.marketIntelligence?.swotAnalysis?.threats || []).map((t, i) => <li key={i}>! {t}</li>)}
+                         </ul>
+                      </div>
+                   </div>
                 </div>
-              </div>
-            </div>
+             </div>
           </div>
         )}
 
         {activeSubTab === 'Roadmap' && (
-          <div className="space-y-8 animate-in fade-in duration-500">
-            <div className="glass-card rounded-[3rem] p-12 border-emerald-500/20">
-              <h3 className="text-3xl font-black text-white brand-font uppercase tracking-tighter mb-12">Execution Roadmap</h3>
-              <div className="relative space-y-12 before:absolute before:inset-0 before:ml-5 md:before:mx-auto before:h-full before:w-0.5 before:bg-gradient-to-b before:from-purple-500 before:to-pink-500">
-                {results.distribution?.map((step, i) => (
-                  <div key={i} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-full border border-white/20 bg-slate-900 text-white shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 transition-all group-hover:scale-110 group-hover:border-purple-500"><span className="text-[10px] font-black">{i + 1}</span></div>
-                    <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] glass-card p-6 rounded-3xl border border-white/5">
-                      <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">{step.channel}</span>
-                      <p className="text-sm text-slate-200 font-bold">{step.action}</p>
+          <div className="space-y-12 animate-in fade-in duration-500">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+               {(results.phasedRoadmap || []).map((phase, i) => (
+                 <div key={i} className="glass-card rounded-[3rem] p-10 flex flex-col h-full border-white/5 relative group">
+                    <div className="absolute -top-4 -right-4 w-12 h-12 rounded-2xl bg-slate-900 border border-white/10 flex items-center justify-center font-black text-white text-xl shadow-2xl">0{i+1}</div>
+                    <div className="space-y-2 mb-8">
+                       <h3 className="text-2xl font-black text-white brand-font uppercase tracking-tighter">{phase.phaseName}</h3>
+                       <p className="text-[10px] text-purple-400 font-black uppercase tracking-widest">{phase.objective}</p>
                     </div>
-                  </div>
-                ))}
-              </div>
+                    <div className="space-y-6 flex-1">
+                       <div className="space-y-3">
+                          <span className="text-[8px] font-black text-slate-600 uppercase">Critical Actions</span>
+                          <div className="space-y-2">
+                             {(phase.actions || []).map((action, j) => (
+                               <div key={j} className="flex gap-3 items-center p-3 bg-white/5 border border-white/5 rounded-xl transition-all">
+                                  <span className="text-emerald-500 text-xs">✔</span>
+                                  <p className="text-[11px] text-slate-400 font-medium">{action}</p>
+                               </div>
+                             ))}
+                          </div>
+                       </div>
+                    </div>
+                 </div>
+               ))}
             </div>
           </div>
         )}
 
-        {activeSubTab === 'Guide' && (
-          <div className="space-y-6 animate-in fade-in duration-500">
-            <div className="glass-card rounded-[2.5rem] p-12 border-purple-500/20 space-y-10">
-              <h3 className="text-3xl font-black text-white brand-font uppercase tracking-tighter text-center">Deliverable Manifest</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="p-8 bg-white/5 rounded-3xl border border-white/10 space-y-4">
-                  <div className="flex items-center gap-4"><div className="w-10 h-10 rounded-2xl bg-purple-500/20 flex items-center justify-center text-xl">📄</div><h4 className="text-lg font-bold text-white uppercase tracking-tighter">Guide (.txt)</h4></div>
-                  <p className="text-xs text-slate-400 leading-relaxed">Full narrative script and strategic blueprint for human-led execution and manual campaign setup. Includes video metadata.</p>
+        {activeSubTab === 'Audit' && (
+          <div className="max-w-4xl mx-auto animate-in zoom-in-95 duration-700">
+             <div className="glass-card rounded-[4rem] p-16 border-emerald-500/30 bg-gradient-to-br from-emerald-500/5 via-transparent to-transparent space-y-12 relative overflow-hidden">
+                <div className="text-center space-y-6 relative">
+                   <div className="inline-block px-6 py-2 bg-emerald-500/10 border border-emerald-500/30 rounded-full text-xs font-black text-emerald-500 uppercase tracking-[0.3em]">Guardian Protocol Verified</div>
+                   <h2 className="text-6xl font-black text-white brand-font uppercase tracking-tighter">Release Certificate</h2>
+                   <div className="flex justify-center gap-12 pt-4">
+                      <div className="text-center">
+                         <div className="text-[10px] font-bold text-slate-500 uppercase mb-1">Audit Score</div>
+                         <div className="text-6xl font-black text-emerald-400">{results.auditCertificate?.score || 0}</div>
+                      </div>
+                      <div className="text-center">
+                         <div className="text-[10px] font-bold text-slate-500 uppercase mb-1">Market Readiness</div>
+                         <div className="text-5xl font-black text-white tracking-widest">{results.auditCertificate?.readinessStatus || 'BETA'}</div>
+                      </div>
+                   </div>
                 </div>
-                <div className="p-8 bg-white/5 rounded-3xl border border-white/10 space-y-4">
-                  <div className="flex items-center gap-4"><div className="w-10 h-10 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-xl">⚙️</div><h4 className="text-lg font-bold text-white uppercase tracking-tighter">Blueprint (.json)</h4></div>
-                  <p className="text-xs text-slate-400 leading-relaxed">Complete programmatic schema including neural metadata and video tracking for automated CRM ingestion.</p>
+
+                <div className="p-10 bg-black/40 border border-white/10 rounded-[3rem] space-y-4 text-center">
+                   <p className="text-lg text-slate-300 leading-relaxed italic">"{results.auditCertificate?.guardianNotes || 'Awaiting final QC review.'}"</p>
                 </div>
-              </div>
-            </div>
+
+                <div className="flex flex-col md:flex-row gap-4 pt-8">
+                   <button onClick={() => window.print()} className="flex-1 py-5 bg-white text-black text-xs font-black uppercase tracking-widest rounded-2xl hover:brightness-90 transition-all">Print Outcome Dossier</button>
+                   <button className="flex-1 py-5 aura-gradient text-white text-xs font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-purple-600/30">Secure Vault Storage</button>
+                </div>
+             </div>
           </div>
         )}
       </div>
 
-      <div className="flex items-center gap-4 pt-4 border-t border-white/5">
-        <button onClick={onMonitorPerformance} className="flex-1 aura-gradient p-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] text-white shadow-2xl shadow-purple-600/20 transition-all hover:scale-[1.01] active:scale-95 cursor-pointer">Activate Swarm</button>
+      <div className="flex items-center gap-4 pt-8 border-t border-white/5">
+        <button onClick={onMonitorPerformance} className="flex-1 aura-gradient p-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] text-white shadow-2xl shadow-purple-600/20 hover:scale-[1.01] active:scale-95 transition-all">Activate Swarm Delivery</button>
         <div className="flex gap-2">
-          <button onClick={handleExportPackage} className="px-8 py-5 bg-slate-900 border border-white/10 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] text-slate-300 hover:bg-white/5 transition-all cursor-pointer">Guide</button>
-          <button onClick={handleExportJSON} className="px-8 py-5 bg-slate-900 border border-white/10 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] text-emerald-400 hover:bg-white/5 transition-all cursor-pointer">JSON</button>
+          <button onClick={handleExportManifest} className="px-10 py-5 bg-slate-900 border border-white/10 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] text-slate-300 hover:bg-white/5 transition-all">Export Manifest</button>
+          <button onClick={handleExportJSON} className="px-10 py-5 bg-slate-900 border border-white/10 rounded-2xl font-black text-[11px] uppercase tracking-[0.3em] text-emerald-400 hover:bg-white/5 transition-all">Export JSON</button>
         </div>
       </div>
     </div>

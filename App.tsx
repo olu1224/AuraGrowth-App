@@ -100,10 +100,11 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<CampaignOutcome[]>([]);
   const [activities, setActivities] = useState<AgentActivity[]>([]);
   const [agents, setAgents] = useState<Agent[]>(DEFAULT_AGENTS);
-  const [credits, setCredits] = useState(3);
+  const [credits, setCredits] = useState(10);
   const [totalTasksCompleted, setTotalTasksCompleted] = useState(0);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [isTurboMode, setIsTurboMode] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -160,36 +161,37 @@ const App: React.FC = () => {
     if (!hasApiKey) { handleSelectKey(); return; }
     
     setIsProcessing(true);
+    setGenError(null);
     setOutcome(null);
     setAgents(prev => prev.map(a => ({ ...a, status: 'ACTIVE', statusMessage: 'Initializing swarm...' })));
 
     try {
+      if (credits <= 0) throw new Error("Insufficient outcome credits. Refuel in the Monetize tab.");
       setCredits(prev => prev - 1);
       
       setActiveRole('RESEARCHER');
       updateAgentState('RESEARCHER', 'ACTIVE', 'Scanning market niches...');
-      await new Promise(r => setTimeout(r, isTurboMode ? 200 : 800));
+      await new Promise(r => setTimeout(r, isTurboMode ? 100 : 500));
       
       setActiveRole('STRATEGIST');
-      updateAgentState('STRATEGIST', 'ACTIVE', isTurboMode ? 'Turbo Synthesis Initiated...' : 'Synthesizing blueprint...');
+      updateAgentState('STRATEGIST', 'ACTIVE', 'Synthesizing strategic blueprint...');
       const results = await geminiService.generateMarketingOutcome(objective, audience, agents, isTurboMode);
       
       setActiveRole('COPYWRITER');
-      updateAgentState('COPYWRITER', 'ACTIVE', 'Drafting multi-channel narrative...');
-      await new Promise(r => setTimeout(r, isTurboMode ? 200 : 800));
+      updateAgentState('COPYWRITER', 'ACTIVE', 'Generating multi-channel narrative...');
+      await new Promise(r => setTimeout(r, isTurboMode ? 100 : 500));
 
       setActiveRole('DESIGNER');
-      updateAgentState('DESIGNER', 'ACTIVE', 'Rendering visuals...');
+      updateAgentState('DESIGNER', 'ACTIVE', 'Rendering cinematic identity...');
       const imageUrl = await geminiService.generateCampaignImage(results.visualPrompt, campaignAsset || undefined);
-      await new Promise(r => setTimeout(r, isTurboMode ? 200 : 800));
-
+      
       setActiveRole('QUALITY_MANAGER');
-      updateAgentState('QUALITY_MANAGER', 'ACTIVE', 'Auditing final output for quality control...');
-      await new Promise(r => setTimeout(r, isTurboMode ? 300 : 1200));
+      updateAgentState('QUALITY_MANAGER', 'ACTIVE', 'Finalizing swarm audit...');
+      await new Promise(r => setTimeout(r, isTurboMode ? 100 : 500));
       
       const finalOutcome: CampaignOutcome = {
-        id: Date.now().toString(),
-        name: `Outcome: ${objective.substring(0, 25)}...`,
+        id: `OUT-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+        name: `Outcome: ${objective.substring(0, 20)}...`,
         status: 'COMPLETED',
         objective,
         targetAudience: audience,
@@ -201,26 +203,15 @@ const App: React.FC = () => {
       setOutcome(finalOutcome);
       setHistory(prev => [finalOutcome, ...prev]);
       setActiveRole(null);
-      setAgents(prev => prev.map(a => ({ ...a, status: 'IDLE', statusMessage: 'Standing by' })));
+      setAgents(prev => prev.map(a => ({ ...a, status: 'IDLE', statusMessage: 'Outcome Verified' })));
       setTotalTasksCompleted(c => c + 5);
       
-      setActivities(prev => [...prev, {
-        id: 'complete-' + Date.now(),
-        role: 'QUALITY_MANAGER',
-        message: `Outcome verified and released for deployment ${isTurboMode ? '(Turbo Validation Enabled)' : ''}.`,
-        timestamp: Date.now(),
-        isLog: false
-      }]);
+      updateAgentState('QUALITY_MANAGER', 'IDLE', 'Outcome Verified & Released.', false);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      setActivities(prev => [...prev, {
-        id: 'error-' + Date.now(),
-        role: 'STRATEGIST',
-        message: 'Critical failure in swarm synchronization.',
-        timestamp: Date.now(),
-        isLog: false
-      }]);
+      setGenError(error.message || "Swarm synchronization failed.");
+      updateAgentState('QUALITY_MANAGER', 'IDLE', `CRITICAL ERROR: ${error.message || 'Swarm Failure'}`, false);
     } finally {
       setIsProcessing(false);
     }
@@ -228,7 +219,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col transition-colors duration-300 bg-[#020617]">
-      {/* ASB Protocol Ticker Bar */}
       <div className="ticker-bar">
         <div className="ticker-animate flex whitespace-nowrap">
            <span className="ticker-content">ASB PROTOCOL | AURAGROWTH: SOLO BILLION-DOLLAR MODEL IS ONLINE. RESULTS-ORIENTED AGENCY OF THE FUTURE. | </span>
@@ -241,7 +231,7 @@ const App: React.FC = () => {
           <button onClick={() => setActiveTab('Engine')} className="hover:opacity-80 transition-opacity focus:outline-none"><Logo className="scale-75 origin-left" /></button>
           <div className="hidden xl:flex items-center gap-8 text-[10px] font-extrabold text-slate-500 uppercase tracking-[0.2em]">
              <div className="flex items-center gap-2"><span className="w-2 h-2 bg-emerald-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>GLOBAL SWARM CAPACITY: <span className="text-white">94%</span></div>
-             <div className="flex items-center gap-2"><span className="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]"></span>ACTIVE OUTCOMES: <span className="text-white">1.2K</span></div>
+             <div className="flex items-center gap-2"><span className="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]"></span>ACTIVE OUTCOMES: <span className="text-white">{history.length + 1.2}K</span></div>
           </div>
         </div>
         <div className="flex items-center gap-10">
@@ -283,7 +273,7 @@ const App: React.FC = () => {
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">1. Business Objective</span>
                       <button onClick={() => setIsTurboMode(!isTurboMode)} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border transition-all ${isTurboMode ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' : 'bg-slate-800/50 border-white/5 text-slate-500'}`}>
-                         <span className="text-[8px] font-black uppercase tracking-tighter">{isTurboMode ? 'Turbo (Flash Lite)' : 'Standard (Pro)'}</span>
+                         <span className="text-[8px] font-black uppercase tracking-tighter">{isTurboMode ? 'Turbo' : 'Standard'}</span>
                          <span className="text-xs">⚡</span>
                       </button>
                     </div>
@@ -318,6 +308,13 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+                {genError && (
+                  <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-[10px] text-red-400 font-bold uppercase tracking-tight">
+                    {genError}
+                  </div>
+                )}
+
                 <button onClick={runCampaignOutcomeProcess} disabled={isProcessing || !objective || !audience} className="w-full aura-gradient p-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] text-white transition-all transform hover:brightness-110 active:scale-[0.98] shadow-2xl shadow-purple-600/20">
                   {isProcessing ? 'Synthesizing Swarm...' : 'Generate Outcome'}
                 </button>
@@ -347,7 +344,7 @@ const App: React.FC = () => {
                 </div>
                 <div className="min-h-[600px] relative">
                   {outcome ? (
-                    <OutcomeView results={outcome.results!} onMonitorPerformance={handleMonitorPerformance} isActivated={outcome.isActivated} />
+                    <OutcomeView key={outcome.id} results={outcome.results!} onMonitorPerformance={handleMonitorPerformance} isActivated={outcome.isActivated} />
                   ) : (
                     <div className="h-full flex flex-col items-center justify-start pt-32 text-center p-16 bg-slate-900/20 backdrop-blur-md rounded-[3rem] border border-white/5 shadow-inner">
                       <div className="w-20 h-20 bg-slate-800/50 rounded-full flex items-center justify-center mb-8 border border-white/10">

@@ -45,8 +45,39 @@ export interface CommunityOutcome extends CampaignOutcome {
   likes: number;
 }
 
+export interface ICP {
+  personaName: string;
+  painPoints: string[];
+  motivations: string[];
+}
+
+export interface StrategicPhase {
+  phaseName: string;
+  objective: string;
+  actions: string[];
+  kpis: string[];
+}
+
 export interface CampaignResults {
-  strategy: string;
+  executiveSummary: string;
+  marketIntelligence: {
+    swotAnalysis: {
+      strengths: string[];
+      weaknesses: string[];
+      opportunities: string[];
+      threats: string[];
+    };
+    competitorVulnerabilities: string[];
+  };
+  audienceDossier: {
+    icps: ICP[];
+    psychographics: string;
+  };
+  coreOfferArchitecture: {
+    hook: string;
+    transformation: string;
+    guarantee: string;
+  };
   copy: {
     headline: string;
     body: string;
@@ -54,16 +85,19 @@ export interface CampaignResults {
     socialPosts: string[];
     emailSubject: string;
     emailBody: string;
+    brandVoiceRules: string[];
   };
-  distribution: {
-    channel: string;
-    action: string;
-  }[];
+  phasedRoadmap: StrategicPhase[];
   visualPrompt: string;
   videoPrompt: string;
   visualUrl?: string;
   videoUrl?: string;
-  campaignAsset?: string; // Base64 of logo or reference image
+  campaignAsset?: string;
+  auditCertificate: {
+    score: number;
+    guardianNotes: string;
+    readinessStatus: 'ALPHA' | 'BETA' | 'MARKET_READY';
+  };
 }
 
 export interface AgentActivity {

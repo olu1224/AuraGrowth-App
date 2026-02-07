@@ -7,16 +7,12 @@ export class GeminiService {
     return new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
 
-  /**
-   * Helper to wrap API calls with a simple exponential backoff for 429s
-   */
   private async withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
     try {
       return await fn();
     } catch (error: any) {
-      const isQuotaError = error.message?.includes("429") || error.status === 429 || error.message?.toLowerCase().includes("quota");
+      const isQuotaError = error.message?.includes("429") || error.status === 429;
       if (isQuotaError && retries > 0) {
-        console.warn(`Quota hit, retrying in ${delay}ms... (${retries} attempts left)`);
         await new Promise(resolve => setTimeout(resolve, delay));
         return this.withRetry(fn, retries - 1, delay * 2);
       }
@@ -31,38 +27,65 @@ export class GeminiService {
     isFast: boolean = false
   ): Promise<CampaignResults> {
     const ai = this.getAI();
-    const researcher = agents.find(a => a.role === 'RESEARCHER');
-    const strategist = agents.find(a => a.role === 'STRATEGIST');
-    const copywriter = agents.find(a => a.role === 'COPYWRITER');
-    const designer = agents.find(a => a.role === 'DESIGNER');
-    const quality = agents.find(a => a.role === 'QUALITY_MANAGER');
-
-    const model = isFast ? 'gemini-flash-lite-latest' : 'gemini-3-pro-preview';
+    const modelName = isFast ? 'gemini-flash-lite-latest' : 'gemini-3-pro-preview';
 
     const prompt = `
-      Act as the AuraGrowth Swarm Controller. Synthesize a massive outcome for:
+      Execute ASB Swarm Synthesis.
       Objective: ${objective}
       Target Audience: ${audience}
-
-      Agent Insights to use:
-      - Researcher (${researcher?.name}): Focus on market data and pain points.
-      - Strategist (${strategist?.name}): Focus on conversion funnels.
-      - Copywriter (${copywriter?.name}): Focus on multi-channel messaging.
-      - Designer (${designer?.name}): Focus on cinematic image and video vision.
-      - Quality Manager (${quality?.name}): Ensure final results meet rigorous standards for brand excellence and conversion logic.
+      Ensure deep strategic reasoning.
     `;
 
-    // Fix: Explicitly cast to GenerateContentResponse to access the 'text' property
     const response = await this.withRetry(() => ai.models.generateContent({
-      model: model,
+      model: modelName,
       contents: prompt,
       config: {
-        systemInstruction: "You are the AuraGrowth Swarm Controller under the strict oversight of the Quality Manager. Create a comprehensive marketing outcome. Include separate copy for Social and Email. Include a video prompt and a distribution plan. IMPORTANT: Video prompts MUST be strictly VISUAL, DESCRIBING MOTION, LIGHTING, AND TEXTURES. EXPLICITLY specify 'NO TEXT, NO LETTERS, NO WRITING, NO CAPTIONS' to avoid AI spelling artifacts. Return strictly JSON.",
+        systemInstruction: "You are an elite ASB Controller. Output strictly professional strategic JSON.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            strategy: { type: Type.STRING },
+            executiveSummary: { type: Type.STRING },
+            marketIntelligence: {
+              type: Type.OBJECT,
+              properties: {
+                swotAnalysis: {
+                  type: Type.OBJECT,
+                  properties: {
+                    strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    opportunities: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    threats: { type: Type.ARRAY, items: { type: Type.STRING } }
+                  }
+                },
+                competitorVulnerabilities: { type: Type.ARRAY, items: { type: Type.STRING } }
+              }
+            },
+            audienceDossier: {
+              type: Type.OBJECT,
+              properties: {
+                icps: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      personaName: { type: Type.STRING },
+                      painPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      motivations: { type: Type.ARRAY, items: { type: Type.STRING } }
+                    }
+                  }
+                },
+                psychographics: { type: Type.STRING }
+              }
+            },
+            coreOfferArchitecture: {
+              type: Type.OBJECT,
+              properties: {
+                hook: { type: Type.STRING },
+                transformation: { type: Type.STRING },
+                guarantee: { type: Type.STRING }
+              }
+            },
             copy: {
               type: Type.OBJECT,
               properties: {
@@ -71,200 +94,122 @@ export class GeminiService {
                 cta: { type: Type.STRING },
                 socialPosts: { type: Type.ARRAY, items: { type: Type.STRING } },
                 emailSubject: { type: Type.STRING },
-                emailBody: { type: Type.STRING }
-              },
-              required: ["headline", "body", "cta", "socialPosts", "emailSubject", "emailBody"]
+                emailBody: { type: Type.STRING },
+                brandVoiceRules: { type: Type.ARRAY, items: { type: Type.STRING } }
+              }
             },
-            distribution: {
+            phasedRoadmap: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  channel: { type: Type.STRING },
-                  action: { type: Type.STRING }
+                  phaseName: { type: Type.STRING },
+                  objective: { type: Type.STRING },
+                  actions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  kpis: { type: Type.ARRAY, items: { type: Type.STRING } }
                 }
               }
             },
             visualPrompt: { type: Type.STRING },
-            videoPrompt: { type: Type.STRING }
+            videoPrompt: { type: Type.STRING },
+            auditCertificate: {
+              type: Type.OBJECT,
+              properties: {
+                score: { type: Type.NUMBER },
+                guardianNotes: { type: Type.STRING },
+                readinessStatus: { type: Type.STRING }
+              }
+            }
           },
-          required: ["strategy", "copy", "visualPrompt", "videoPrompt", "distribution"]
+          required: ["executiveSummary", "marketIntelligence", "audienceDossier", "coreOfferArchitecture", "copy", "phasedRoadmap", "visualPrompt", "videoPrompt", "auditCertificate"]
         }
       }
     })) as GenerateContentResponse;
 
-    return JSON.parse(response.text || '{}') as CampaignResults;
+    const results = JSON.parse(response.text || '{}');
+    return results as CampaignResults;
   }
 
   async generateCampaignImage(visualPrompt: string, referenceAsset?: string): Promise<string | undefined> {
     const ai = this.getAI();
     const contents: any[] = [];
     
-    const instruction = referenceAsset 
-      ? `High-fidelity commercial marketing hero image. Incorporate the provided reference asset/logo into the scene: ${visualPrompt}. 16:9 aspect ratio, cinematic realism. ABSOLUTELY NO TEXT, NO OTHER LOGOS, NO WRITING.`
-      : `High-fidelity commercial marketing hero image: ${visualPrompt}. 16:9 aspect ratio, cinematic realism. ABSOLUTELY NO TEXT, NO LOGOS, NO WRITING.`;
-
     if (referenceAsset) {
       const base64Data = referenceAsset.split(',')[1] || referenceAsset;
-      contents.push({
-        inlineData: {
-          data: base64Data,
-          mimeType: 'image/png'
-        }
-      });
+      contents.push({ inlineData: { data: base64Data, mimeType: 'image/png' } });
     }
-    
-    contents.push({ text: instruction });
+    contents.push({ text: `Elite visual: ${visualPrompt}. 16:9, NO TEXT.` });
 
-    // Fix: Explicitly cast response to GenerateContentResponse to access 'candidates'
     const response = await this.withRetry(() => ai.models.generateContent({
       model: 'gemini-3-pro-image-preview',
       contents: { parts: contents },
-      config: {
-        imageConfig: { aspectRatio: "16:9", imageSize: "1K" }
-      }
+      config: { imageConfig: { aspectRatio: "16:9", imageSize: "1K" } }
     })) as GenerateContentResponse;
 
-    if (response.candidates?.[0]?.content?.parts) {
-      for (const part of response.candidates[0].content.parts) {
-        if (part.inlineData) {
-          return `data:image/png;base64,${part.inlineData.data}`;
-        }
-      }
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
     }
     return undefined;
   }
 
   async generateCampaignVideo(videoPrompt: string, aspectRatio: '16:9' | '9:16' = '16:9', referenceAsset?: string, willExtend: boolean = false): Promise<{ url: string, rawVideo: any } | undefined> {
-    try {
-      const model = (referenceAsset || willExtend) ? 'veo-3.1-generate-preview' : 'veo-3.1-fast-generate-preview';
-      
-      const finalAspectRatio = referenceAsset ? '16:9' : aspectRatio;
-      const config: any = {
-        numberOfVideos: 1,
-        resolution: '720p',
-        aspectRatio: finalAspectRatio
-      };
-
-      const promptText = `Hyper-visual cinematic sequence. ${videoPrompt}. ${referenceAsset ? "Integrate the brand asset provided as a physical element in the scene." : ""} NO TEXT, NO CAPTIONS.`;
-
-      // Fix: Cast operation to any to access 'done' and 'response' properties which might be typed as unknown by the generic helper
-      let operation = await this.withRetry(() => {
-        // GUIDELINE: Create a new GoogleGenAI instance right before making an API call for Veo models
-        const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        if (referenceAsset) {
-          const base64Data = referenceAsset.split(',')[1] || referenceAsset;
-          return localAi.models.generateVideos({
-            model: model,
-            prompt: promptText,
-            config: {
-              ...config,
-              referenceImages: [{
-                image: {
-                  imageBytes: base64Data,
-                  mimeType: 'image/png',
-                },
-                referenceType: VideoGenerationReferenceType.ASSET,
-              }]
-            }
-          });
-        } else {
-          return localAi.models.generateVideos({
-            model: model,
-            prompt: promptText,
-            config: config
-          });
-        }
-      }) as any;
-
-      while (!operation.done) {
-        await new Promise(resolve => setTimeout(resolve, 10000));
-        try {
-          operation = await this.withRetry(() => {
-             const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
-             return localAi.operations.getVideosOperation({ operation: operation });
-          }) as any;
-        } catch (pollErr: any) {
-          if (pollErr.message?.includes("Requested entity was not found")) {
-            await window.aistudio?.openSelectKey?.();
+    const model = (referenceAsset || willExtend) ? 'veo-3.1-generate-preview' : 'veo-3.1-fast-generate-preview';
+    const config: any = { numberOfVideos: 1, resolution: '720p', aspectRatio: referenceAsset ? '16:9' : aspectRatio };
+    
+    let operation = await this.withRetry(() => {
+      const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      if (referenceAsset) {
+        const base64Data = referenceAsset.split(',')[1] || referenceAsset;
+        return localAi.models.generateVideos({
+          model: model,
+          prompt: videoPrompt,
+          config: {
+            ...config,
+            referenceImages: [{
+              image: { imageBytes: base64Data, mimeType: 'image/png' },
+              referenceType: VideoGenerationReferenceType.ASSET,
+            }]
           }
-          throw pollErr;
-        }
+        });
       }
+      return localAi.models.generateVideos({ model, prompt: videoPrompt, config });
+    }) as any;
 
-      const video = operation.response?.generatedVideos?.[0]?.video;
-      if (video?.uri) {
-        return {
-          url: `${video.uri}&key=${process.env.API_KEY}`,
-          rawVideo: video
-        };
-      }
-    } catch (error: any) {
-      console.error("Video Generation Error:", error);
-      if (error.message?.includes("Requested entity was not found")) {
-        await window.aistudio?.openSelectKey?.();
-      }
-      throw error;
+    while (!operation.done) {
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      operation = await localAi.operations.getVideosOperation({ operation });
     }
+
+    const video = operation.response?.generatedVideos?.[0]?.video;
+    if (video?.uri) return { url: `${video.uri}&key=${process.env.API_KEY}`, rawVideo: video };
     return undefined;
   }
 
   async extendCampaignVideo(videoPrompt: string, previousVideo: any, aspectRatio: '16:9' | '9:16' = '16:9'): Promise<{ url: string, rawVideo: any } | undefined> {
-    try {
-      // Fix: Cast operation to any to access 'done' and 'response' properties
-      let operation = await this.withRetry(() => {
-        // GUIDELINE: Create a new GoogleGenAI instance right before making an API call for Veo models
-        const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        return localAi.models.generateVideos({
-          model: 'veo-3.1-generate-preview',
-          prompt: `Seamlessly continue the movement and visual narrative from the previous shot. The camera and action should transition perfectly: ${videoPrompt}. NO TEXT, NO CAPTIONS.`,
-          video: previousVideo,
-          config: {
-            numberOfVideos: 1,
-            resolution: '720p',
-            aspectRatio: aspectRatio
-          }
-        });
-      }) as any;
+    const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    let operation = await localAi.models.generateVideos({
+      model: 'veo-3.1-generate-preview',
+      prompt: videoPrompt,
+      video: previousVideo,
+      config: { numberOfVideos: 1, resolution: '720p', aspectRatio }
+    });
 
-      while (!operation.done) {
-        await new Promise(resolve => setTimeout(resolve, 10000));
-        try {
-          operation = await this.withRetry(() => {
-            const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            return localAi.operations.getVideosOperation({ operation: operation });
-          }) as any;
-        } catch (pollErr: any) {
-          if (pollErr.message?.includes("Requested entity was not found")) {
-            await window.aistudio?.openSelectKey?.();
-          }
-          throw pollErr;
-        }
-      }
-
-      const video = operation.response?.generatedVideos?.[0]?.video;
-      if (video?.uri) {
-        return {
-          url: `${video.uri}&key=${process.env.API_KEY}`,
-          rawVideo: video
-        };
-      }
-    } catch (error: any) {
-      console.error("Video Extension Error:", error);
-      if (error.message?.includes("Requested entity was not found")) {
-        await window.aistudio?.openSelectKey?.();
-      }
-      throw error;
+    while (!operation.done) {
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      operation = await localAi.operations.getVideosOperation({ operation });
     }
+
+    const video = operation.response?.generatedVideos?.[0]?.video;
+    if (video?.uri) return { url: `${video.uri}&key=${process.env.API_KEY}`, rawVideo: video };
     return undefined;
   }
 
   async generateClientProposal(marketName: string): Promise<ClientProposal> {
     const ai = this.getAI();
-    // Fix: Explicitly cast response to GenerateContentResponse to access 'text' property
-    const response = await this.withRetry(() => ai.models.generateContent({
+    const response = await ai.models.generateContent({
       model: "gemini-flash-lite-latest",
-      contents: `Generate a proposal for ${marketName}.`,
+      contents: `Generate ASB proposal for ${marketName}.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -285,7 +230,7 @@ export class GeminiService {
           }
         }
       }
-    })) as GenerateContentResponse;
+    });
     return JSON.parse(response.text || '{}') as ClientProposal;
   }
 }
